@@ -605,3 +605,45 @@ return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
 3. Check "Has Subsidiary Ledger (Control Account)"
 4. Select Subsidiary Type (Customer/Supplier/Inventory Item/Fixed Asset/Employee)
 5. The account will appear in the Subsidiary Ledgers dropdown
+
+---
+
+### Subsidiary Ledger Balance & Reconciliation Fix (2026-04-21)
+
+**Issues Fixed:**
+- **Stale balance values**: The `SubsidiaryLedger` model had `debitTotal`, `creditTotal`, and `balance` fields that were NEVER updated when transactions were created. The API read these zero/stale values, causing "Out of Balance" errors in reconciliation.
+- **Wrong HTTP method**: The reconciliation endpoint in `subsidiary-transactions/route.ts` was using `DELETE` instead of `GET`.
+- **No DELETE route**: No way to delete subsidiary ledgers.
+
+**Files Updated:**
+- `app/api/accounting/subsidiary-ledgers/route.ts` - GET handler now fetches all `subsidiaryTransaction` records and calculates balances dynamically. Added DELETE route for removing subsidiary ledgers.
+- `app/api/accounting/subsidiary-transactions/route.ts` - Changed `DELETE` to `GET` for reconciliation endpoint. Now recalculates SL totals from transactions instead of stale stored values.
+
+**Changes Made:**
+1. **Dynamic balance calculation**: The subsidiary-ledgers GET handler now includes all `transactions` for each ledger, then calculates `debitTotal`, `creditTotal`, and `balance` from the transaction records.
+2. **Dynamic reconciliation**: The subsidiary-transactions GET (reconciliation) endpoint now iterates through all control accounts, fetches their ledgers with transactions, and calculates SL totals dynamically.
+3. **Added DELETE route**: New DELETE endpoint in `subsidiary-ledgers/route.ts` allows deleting subsidiary ledgers by ID.
+
+```typescript
+// Before: Used stale ledger.balance field
+const totalBalance = ledgers.reduce((sum, ledger) => sum + ledger.balance, 0);
+
+// After: Calculates from transactions dynamically
+const recalculatedLedgers = ledgers.map(ledger => {
+  const debitTotal = ledger.transactions.reduce((sum, t) => sum + (t.debit || 0), 0);
+  const creditTotal = ledger.transactions.reduce((sum, t) => sum + (t.credit || 0), 0);
+  const balance = debitTotal - creditTotal;
+  return { ...ledger, debitTotal, creditTotal, balance };
+});
+```
+
+**How Reconciliation Works Now:**
+1. API fetches all control accounts (`hasSubsidiaryLedger: true`)
+2. For each account, fetches all subsidiary ledgers with their transactions
+3. Calculates SL balance dynamically from `debit - credit` of all transactions
+4. Calculates GL balance from `journalLine` aggregate
+5. Compares GL vs SL — if difference < 0.01, `isBalanced: true`
+
+**Key Files:**
+- `app/api/accounting/subsidiary-ledgers/route.ts` - Dynamic balance calculation, DELETE route
+- `app/api/accounting/subsidiary-transactions/route.ts` - Fixed GET reconciliation, dynamic SL calculation
