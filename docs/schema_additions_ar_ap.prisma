@@ -1,0 +1,85 @@
+enum SalesInvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  PARTIALLY_PAID
+  VOID
+}
+
+model SalesInvoice {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  invoiceNumber String   @unique
+  date          DateTime @default(now())
+  dueDate       DateTime
+  customerId    String   @db.ObjectId
+  customerName   String
+  status        SalesInvoiceStatus @default(DRAFT)
+
+  items          SalesInvoiceItem[]
+
+  totalAmount    Float
+  amountPaid     Float    @default(0)
+
+  journalEntryId String?  @db.ObjectId
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("sales_invoices")
+}
+
+model SalesInvoiceItem {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  invoiceId      String   @db.ObjectId
+  invoice        SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description   String
+  quantity       Float
+  unitPrice      Float
+  total          Float
+
+  @@map("sales_invoice_items")
+}
+
+enum PurchaseBillStatus {
+  DRAFT
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+model PurchaseBill {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  billNumber    String   @unique
+  date          DateTime @default(now())
+  dueDate       DateTime
+  supplierId    String   @db.ObjectId
+  supplierName   String
+  status        PurchaseBillStatus @default(UNPAID)
+
+  items          PurchaseBillItem[]
+
+  totalAmount    Float
+  amountPaid     Float    @default(0)
+
+  journalEntryId String?  @db.ObjectId
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("purchase_bills")
+}
+
+model PurchaseBillItem {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  billId         String   @db.ObjectId
+  bill           PurchaseBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  description   String
+  quantity       Float
+  unitPrice      Float
+  total          Float
+
+  @@map("purchase_bill_items")
+}

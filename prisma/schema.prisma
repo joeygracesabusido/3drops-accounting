@@ -1,0 +1,773 @@
+// Prisma Schema for HRIS Philippines - MongoDB
+// This schema defines the database models for a Human Resource Information System
+// compliant with Philippine labor laws and payroll calculations.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// MODELS
+// ============================================================================
+
+/// User role enum
+enum Role {
+  ADMIN
+  HR
+  MANAGER
+  EMPLOYEE
+}
+
+/// Employee status enum for Philippine labor law compliance
+enum EmployeeStatus {
+  PROBATIONARY   // 6 months trial period
+  REGULAR        // Permanently employed
+}
+
+/// User model for authentication
+/// Links to Employee record for role-based access
+model User {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  username      String    @unique
+  email         String    @unique
+  name          String?
+  password      String?
+  role          Role      @default(EMPLOYEE)
+  status        String    @default("FOR_APPROVAL")
+  image         String?
+  emailVerified DateTime?
+
+  failedAttempts Int      @default(0)
+  lockUntil      DateTime?
+
+  employees      Employee[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("users")
+}
+
+/// Employee model containing HR-related information
+model Employee {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+
+  userId        String?   @db.ObjectId
+  user          User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  employeeNumber Int?     @unique
+  fullName      String
+  email         String    @unique
+
+  employeeId    String    @unique
+  position      String
+  department    String
+
+  basicSalary   Float
+  dailyRate     Float     @default(0)
+  payType       String    @default("MONTHLY") // MONTHLY or DAILY
+  payrollFrequency String @default("MONTHLY")
+
+  hireDate      DateTime
+  endDate       DateTime?
+  isActive      Boolean   @default(true)
+  faceDescriptor Float[]   // Biometric face descriptor for recognition
+  employeeStatus    EmployeeStatus @default(PROBATIONARY)
+  regularizationDate DateTime?     // Date when probationary became regular
+
+  tin           String
+  sssNo         String
+  philhealthNo  String
+  pagibigNo     String
+
+  bankName      String?
+  bankAccountNo String?
+
+  managerId     String?   @db.ObjectId
+  manager       Employee? @relation("ReportingLine", fields: [managerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subordinates  Employee[] @relation("ReportingLine")
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  timeLogs      TimeLog[]
+  payrolls      Payroll[]
+  leaveRequests LeaveRequest[] @relation("EmployeeLeaves")
+  approvedLeaves LeaveRequest[] @relation("ApproverLeaves")
+  overtimeRequests OvertimeRequest[] @relation("EmployeeOvertime")
+  approvedOvertime OvertimeRequest[] @relation("ApproverOvertime")
+  advances      Advance[]
+  leaveCredits    LeaveCredit[]
+  shiftSchedules ShiftSchedule[]
+  assets        Asset[]
+
+  @@map("employees")
+  }
+
+  /// Shift model for defining working hours
+  model Shift {
+    id          String   @id @default(auto()) @map("_id") @db.ObjectId
+    name        String   @unique // e.g., AM_0800_1700, NIGHT_SHIFT
+    startTime   String   // e.g., "08:00"
+    endTime     String   // e.g., "17:00"
+    color       String?  // hex or tailwind class
+    isOff       Boolean  @default(false)
+    
+    schedules   ShiftSchedule[]
+    
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    @@map("shifts")
+  }
+
+  /// ShiftSchedule model for assigning shifts to employees on specific dates
+  model ShiftSchedule {
+    id          String   @id @default(auto()) @map("_id") @db.ObjectId
+    employeeId  String   @db.ObjectId
+    employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+    
+    shiftId     String   @db.ObjectId
+    shift       Shift    @relation(fields: [shiftId], references: [id])
+    
+    date        DateTime
+    
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    @@unique([employeeId, date])
+    @@map("shiftschedules")
+  }
+
+  /// Advance model for employee loans (Cash Advance, SSS, Pag-IBIG)
+  model Advance {
+  id               String           @id @default(auto()) @map("_id") @db.ObjectId
+  employeeId       String           @db.ObjectId
+  employee         Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  type             String           // CASH_ADVANCE, SSS_LOAN, PAGIBIG_LOAN
+  totalAmount      Float
+  remainingBalance Float
+  deductionAmount  Float            // Amount to deduct per payroll
+
+  status           String           @default("ACTIVE") // ACTIVE, FULLY_PAID
+
+  payments         AdvancePayment[]
+
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@map("advances")
+  }
+
+  /// AdvancePayment model for tracking deductions
+  model AdvancePayment {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  advanceId   String   @db.ObjectId
+  advance     Advance  @relation(fields: [advanceId], references: [id], onDelete: Cascade)
+
+  payrollId   String?  @db.ObjectId
+  payroll     Payroll? @relation(fields: [payrollId], references: [id])
+
+  amount      Float
+  balanceAfter Float
+  paymentDate DateTime @default(now())
+
+  notes       String?
+
+  @@map("advancepayments")
+  }
+
+  /// LeaveRequest status enum
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// Overtime status enum
+enum OtStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Leave credit ledger types
+enum LeaveCreditType {
+  MONTHLY_ACCRUAL    // Monthly accrual
+  ADJUSTMENT         // Manual adjustment by HR
+  USED               // Deducted when leave approved
+  CARRY_FORWARD      // Year-end carry over
+  EXPIRED            // Unused credits that expired
+}
+
+/// LeaveRequest model for filing and approving leaves
+model LeaveRequest {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+
+  employeeId   String      @db.ObjectId
+  employee     Employee    @relation("EmployeeLeaves", fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  approverId   String?     @db.ObjectId
+  approver     Employee?   @relation("ApproverLeaves", fields: [approverId], references: [id])
+  
+  leaveType    String      // e.g., VACATION, SICK, EMERGENCY, MATERNITY, PATERNITY
+  startDate    DateTime
+  endDate      DateTime
+  daysCount    Float
+  reason       String
+  status       LeaveStatus @default(PENDING)
+  
+  adminNotes   String?     // Notes from the approver
+  
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@map("leaverequests")
+}
+
+/// OvertimeRequest model for filing and approving overtime
+model OvertimeRequest {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+
+  employeeId   String      @db.ObjectId
+  employee     Employee    @relation("EmployeeOvertime", fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  approverId   String?     @db.ObjectId
+  approver     Employee?   @relation("ApproverOvertime", fields: [approverId], references: [id])
+  
+  date         DateTime
+  hours        Float
+  reason       String
+  status       OtStatus    @default(PENDING)
+  
+  adminNotes   String?     // Notes from the approver
+  
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@map("overtimerequests")
+}
+
+/// LeaveCredit model for tracking employee leave balances
+model LeaveCredit {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  
+  employeeId      String   @db.ObjectId
+  employee       Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  leaveType       String   @default("VACATION") // VACATION, SICK
+  totalDays       Float    @default(0)         // Total accrued days
+  usedDays        Float    @default(0)         // Days already used
+  availableDays   Float    @default(0)         // Available for use
+  year            Int      // For yearly tracking
+  
+  transactions    LeaveCreditTransaction[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@unique([employeeId, leaveType, year])
+  @@index([employeeId])
+  @@map("leavecredits")
+}
+
+/// LeaveCreditTransaction model for audit trail
+model LeaveCreditTransaction {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  
+  leaveCreditId   String          @db.ObjectId
+  leaveCredit     LeaveCredit     @relation(fields: [leaveCreditId], references: [id], onDelete: Cascade)
+  
+  type            LeaveCreditType
+  days            Float           // Positive for credit, negative for debit
+  balanceBefore   Float
+  balanceAfter    Float
+  
+  description     String          // e.g., "Monthly accrual for January 2026"
+  referenceId     String?         // LeaveRequest ID if type is USED
+  
+  createdAt       DateTime        @default(now())
+  
+  @@index([leaveCreditId])
+  @@map("leavecredittransactions")
+}
+
+/// HolidayType enum for Philippine labor law compliance
+enum HolidayType {
+  REGULAR          // 200% pay if work, 100% if no work
+  SPECIAL          // 150% pay if work, 100% if no work
+  SPECIAL_NON_WORK // Normal pay if work, no pay if no work
+}
+
+/// OfficeLocation model for GPS geofencing
+model OfficeLocation {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String   @unique
+  latitude    Float
+  longitude   Float
+  radius      Int      @default(5) // in meters
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("officelocations")
+}
+
+/// Holiday model for managing company holidays
+model Holiday {
+  id        String      @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  date      DateTime    @db.Date
+  year      Int
+  type      HolidayType
+  branchId  String?     @db.ObjectId
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([date, branchId])
+  @@index([year])
+  @@index([branchId])
+  @@map("holidays")
+}
+
+/// TimeLog model for daily attendance tracking
+model TimeLog {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+
+  employeeId  String    @db.ObjectId
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  date        DateTime
+  clockIn     DateTime?
+  clockOut    DateTime?
+
+  workHours   Float     @default(0)
+  otHours     Float     @default(0)
+  otStatus    OtStatus  @default(PENDING)
+  lateMinutes Float     @default(0)
+  undertimeMinutes Float @default(0)
+
+  clockInLatitude   Float?
+  clockInLongitude  Float?
+  clockOutLatitude  Float?
+  clockOutLongitude Float?
+
+  notes       String?
+
+  isEdited    Boolean   @default(false)
+  editedBy    String?
+  editReason  String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([employeeId, date])
+  @@map("timelogs")
+}
+
+/// Payroll model for monthly payroll records
+model Payroll {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+
+  employeeId  String    @db.ObjectId
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  month       Int
+  year        Int
+  periodStart DateTime
+  periodEnd   DateTime
+
+  basicSalary     Float     @default(0)
+  dailyRate      Float     @default(0)
+  workDays       Float     @default(0)
+  daysWorked     Float     @default(0)
+
+  otHours         Float     @default(0)
+  otPay           Float     @default(0)
+  holidayPay      Float     @default(0)
+
+  grossPay        Float     @default(0)
+
+  sssEmployee     Float     @default(0)
+  sssEmployer     Float     @default(0)
+  philhealthEmployee Float  @default(0)
+  philhealthEmployer Float  @default(0)
+  pagibigEmployee Float     @default(0)
+  pagibigEmployer Float     @default(0)
+
+  withholdingTax Float     @default(0)
+
+  lateMinutes       Float    @default(0)
+  undertimeMinutes  Float    @default(0)
+
+  otherDeductions Float    @default(0)
+
+  adjustmentAdd      Float    @default(0)
+  adjustmentDeduct   Float    @default(0)
+  adjustmentReason   String?
+
+  totalDeductions Float    @default(0)
+  netPay          Float    @default(0)
+
+  status          String    @default("DRAFT")
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  processedAt     DateTime?
+  approvedBy      String?
+  approvedAt      DateTime?
+
+  advancePayments AdvancePayment[]
+
+  @@unique([employeeId, periodStart, periodEnd])
+  @@index([employeeId, month, year])
+  @@map("payrolls")
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum SubsidiaryType {
+  CUSTOMER       // For Accounts Receivable
+  SUPPLIER       // For Accounts Payable
+  INVENTORY_ITEM // For Inventory
+  ASSET          // For Fixed Assets
+  EMPLOYEE       // For Employee Receivables/Payables
+}
+
+model Account {
+  id                    String         @id @default(auto()) @map("_id") @db.ObjectId
+  code                  String         @unique
+  name                  String
+  type                  AccountType
+  parentCode            String?
+  description           String?
+  isActive              Boolean        @default(true)
+  normalBalance         String         @default("DEBIT") // DEBIT or CREDIT
+  hasSubsidiaryLedger   Boolean        @default(false)   // True if this is a control account
+  subsidiaryType        SubsidiaryType?
+
+  lines                 JournalLine[]
+  subsidiaryLedgers     SubsidiaryLedger[]
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  @@map("accounts")
+}
+
+/// Subsidiary Ledger - Detailed records supporting General Ledger control accounts
+/// Example: AR Control (1200) = Sum of all Customer subsidiary ledgers
+model SubsidiaryLedger {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  accountId       String          @db.ObjectId
+  account         Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // The subsidiary entity (customer, supplier, inventory item, etc.)
+  entityCode      String          // e.g., CUST-001, SUP-001, INV-001
+  entityName      String          // e.g., "ABC Corporation", "XYZ Supplier"
+  entityType      SubsidiaryType  // Links to account.subsidiaryType
+  
+  // Running balance
+  debitTotal      Float           @default(0)
+  creditTotal     Float           @default(0)
+  balance         Float           @default(0) // Calculated: debitTotal - creditTotal
+  
+  // Metadata
+  description     String?
+  isActive        Boolean         @default(true)
+  
+  // Transactions link to this subsidiary
+  transactions    SubsidiaryTransaction[]
+  
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@unique([accountId, entityCode])
+  @@index([accountId])
+  @@index([entityType])
+  @@map("subsidiary_ledgers")
+}
+
+/// Detailed transactions in subsidiary ledger
+model SubsidiaryTransaction {
+  id              String          @id @default(auto()) @map("_id") @db.ObjectId
+  ledgerId        String          @db.ObjectId
+  ledger          SubsidiaryLedger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  
+  date            DateTime        @default(now())
+  referenceNo     String          // e.g., INV-2024-001, PO-2024-001
+  description     String
+  
+  debit           Float           @default(0)
+  credit          Float           @default(0)
+  
+  // Link to journal entry for reconciliation
+  journalEntryId  String?         @db.ObjectId
+  
+  createdAt       DateTime        @default(now())
+  
+  @@index([ledgerId])
+  @@index([date])
+  @@map("subsidiary_transactions")
+}
+
+model JournalEntry {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  date        DateTime @default(now())
+  description String
+  reference    String?
+  status       String   @default("POSTED") // DRAFT, POSTED, VOID
+
+  lines       JournalLine[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  entryId        String   @db.ObjectId
+  entry          JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  accountId      String   @db.ObjectId
+  account        Account  @relation(fields: [accountId], references: [id])
+
+  debit          Float    @default(0)
+  credit         Float    @default(0)
+
+  memo           String?
+
+  createdAt      DateTime @default(now())
+
+  @@map("journal_lines")
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  PAID
+  VOID
+}
+
+model Expense {
+  id              String        @id @default(auto()) @map("_id") @db.ObjectId
+  expenseNumber   String        @unique // Format: EXP-YYYY-XXXX
+  date            DateTime      @default(now())
+  payee            String
+  description     String?
+  status          ExpenseStatus @default(PENDING)
+
+  items           ExpenseItem[]
+  totalAmount     Float
+
+  // Double-Entry Link
+  journalEntryId  String?       @db.ObjectId
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("expenses")
+}
+
+model ExpenseItem {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  expenseId   String   @db.ObjectId
+  expense     Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  description String
+  amount      Float
+
+  // Link to specific COA account for this item
+  accountId   String   @db.ObjectId
+
+  @@map("expense_items")
+}
+
+enum SalesInvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  PARTIALLY_PAID
+  VOID
+}
+
+model SalesInvoice {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  invoiceNumber String   @unique
+  date          DateTime @default(now())
+  dueDate       DateTime
+  customerId    String   @db.ObjectId
+  customerName   String
+  status        SalesInvoiceStatus @default(DRAFT)
+
+  items          SalesInvoiceItem[]
+
+  totalAmount    Float
+  amountPaid     Float    @default(0)
+
+  journalEntryId String?  @db.ObjectId
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("sales_invoices")
+}
+
+model SalesInvoiceItem {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  invoiceId      String   @db.ObjectId
+  invoice        SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description   String
+  quantity       Float
+  unitPrice      Float
+  total          Float
+
+  @@map("sales_invoice_items")
+}
+
+enum PurchaseBillStatus {
+  DRAFT
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+model PurchaseBill {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  billNumber    String   @unique
+  date          DateTime @default(now())
+  dueDate       DateTime
+  supplierId    String   @db.ObjectId
+  supplierName   String
+  status        PurchaseBillStatus @default(UNPAID)
+
+  items          PurchaseBillItem[]
+
+  totalAmount    Float
+  amountPaid     Float    @default(0)
+
+  journalEntryId String?  @db.ObjectId
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("purchase_bills")
+}
+
+model PurchaseBillItem {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  billId         String   @db.ObjectId
+  bill           PurchaseBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  description   String
+  quantity       Float
+  unitPrice      Float
+  total          Float
+
+  @@map("purchase_bill_items")
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  DISPOSED
+  UNDER_MAINTENANCE
+  LOST
+}
+
+enum DepreciationMethod {
+  STRAIGHT_LINE
+  DECLINING_BALANCE
+  NONE
+}
+
+enum AssetTransactionType {
+  ACQUISITION
+  TRANSFER
+  MAINTENANCE
+  DISPOSAL
+  DEPRECIATION
+}
+
+model AssetCategory {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String   @unique
+  description String?
+  assets      Asset[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("assetcategories")
+}
+
+model Asset {
+  id                 String             @id @default(auto()) @map("_id") @db.ObjectId
+  assetCode          String             @unique
+  name               String
+  brand              String?
+  description        String?
+  
+  categoryId         String             @db.ObjectId
+  category           AssetCategory      @relation(fields: [categoryId], references: [id])
+  
+  purchaseDate       DateTime
+  supplier           String?
+  purchaseCost       Float
+  usefulLife         Int                // In years
+  residualValue      Float              
+  depreciationMethod DepreciationMethod @default(STRAIGHT_LINE)
+  
+  location           String
+  quantity           Int                @default(1)
+  
+  assignedToId       String?            @db.ObjectId
+  assignedTo         Employee?          @relation(fields: [assignedToId], references: [id])
+  
+  status             AssetStatus        @default(ACTIVE)
+  
+  transactions       AssetTransaction[]
+  
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  
+  @@map("assets")
+}
+
+model AssetTransaction {
+  id          String               @id @default(auto()) @map("_id") @db.ObjectId
+  assetId     String               @db.ObjectId
+  asset       Asset                @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  
+  type        AssetTransactionType
+  date        DateTime             @default(now())
+  
+  previousValue String?            
+  newValue      String?            
+  
+  cost        Float?               
+  notes       String?
+  
+  recordedById String?             @db.ObjectId
+  
+  createdAt   DateTime             @default(now())
+  
+  @@map("assettransactions")
+}
