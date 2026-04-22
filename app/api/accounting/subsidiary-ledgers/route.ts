@@ -52,10 +52,13 @@ export async function GET(request: Request) {
     });
 
     // Recalculate balances from transactions dynamically
+    // For credit-normal accounts (liabilities, revenue), balance = credit - debit
+    // For debit-normal accounts (assets, expenses), balance = debit - credit
+    const isCreditNormal = account.normalBalance === 'CREDIT';
     const recalculatedLedgers = ledgers.map(ledger => {
       const debitTotal = ledger.transactions.reduce((sum, t) => sum + (t.debit || 0), 0);
       const creditTotal = ledger.transactions.reduce((sum, t) => sum + (t.credit || 0), 0);
-      const balance = debitTotal - creditTotal;
+      const balance = isCreditNormal ? creditTotal - debitTotal : debitTotal - creditTotal;
       
       return {
         ...ledger,

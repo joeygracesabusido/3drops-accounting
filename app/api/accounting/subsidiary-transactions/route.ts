@@ -131,11 +131,14 @@ export async function GET() {
 
     for (const account of controlAccounts) {
       // Calculate SL total dynamically from transactions
+      // For credit-normal accounts (liabilities, revenue), balance = credit - debit
+      // For debit-normal accounts (assets, expenses), balance = debit - credit
+      const isCreditNormal = account.normalBalance === 'CREDIT';
       let slTotal = 0;
       for (const ledger of account.subsidiaryLedgers) {
         const debitTotal = ledger.transactions.reduce((sum: number, t: any) => sum + (t.debit || 0), 0);
         const creditTotal = ledger.transactions.reduce((sum: number, t: any) => sum + (t.credit || 0), 0);
-        const balance = debitTotal - creditTotal;
+        const balance = isCreditNormal ? creditTotal - debitTotal : debitTotal - creditTotal;
         slTotal += balance;
       }
       

@@ -462,6 +462,7 @@ model Account {
 
   lines                 JournalLine[]
   subsidiaryLedgers     SubsidiaryLedger[]
+  payments              Payment[]
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
 
@@ -532,6 +533,7 @@ model JournalEntry {
   status       String   @default("POSTED") // DRAFT, POSTED, VOID
 
   lines       JournalLine[]
+  payments    Payment[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -664,6 +666,7 @@ model PurchaseBill {
   amountPaid     Float    @default(0)
 
   journalEntryId String?  @db.ObjectId
+  payments       Payment[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -682,6 +685,23 @@ model PurchaseBillItem {
   total          Float
 
   @@map("purchase_bill_items")
+}
+
+model Payment {
+  id             String       @id @default(auto()) @map("_id") @db.ObjectId
+  billId         String       @map("purchaseBillId")
+  bill           PurchaseBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  amount         Float        @default(0)
+  paymentDate    DateTime     @db.Date
+  referenceNumber String?     // Check number, transfer ref, etc.
+  notes          String?
+  cashAccountId  String       @map("cashAccountId")
+  cashAccount    Account      @relation(fields: [cashAccountId], references: [id])
+  journalEntryId String?      @map("journalEntryId")
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  createdAt      DateTime     @default(now()) @db.Date
+
+  @@map("payments")
 }
 
 enum AssetStatus {

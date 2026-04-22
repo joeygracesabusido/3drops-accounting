@@ -647,3 +647,74 @@ const recalculatedLedgers = ledgers.map(ledger => {
 **Key Files:**
 - `app/api/accounting/subsidiary-ledgers/route.ts` - Dynamic balance calculation, DELETE route
 - `app/api/accounting/subsidiary-transactions/route.ts` - Fixed GET reconciliation, dynamic SL calculation
+
+---
+
+### Purchase Bill Edit/Update Feature (2026-04-22)
+
+**New Features:**
+- **Edit Button**: Added pencil icon edit button in the Purchase Bills table actions column. Only visible/enabled for bills with `UNPAID` status.
+- **Edit Modal**: Clicking Edit opens the same "Create Purchase Bill" dialog pre-populated with the bill's data, with the title changed to "Edit Purchase Bill" and button to "Update Bill".
+- **Account Auto-Detection**: When editing, the expense account and AP account are automatically populated by reading the journal entry lines (debit line → expense account, credit line → AP account).
+- **Full Cascade Sync**: Updates propagate to all connected modules:
+  1. Purchase Bill record (date, due date, supplier, total amount)
+  2. Purchase Bill Items (old items deleted, new items created)
+  3. Journal Entry (old entry deleted, new entry created with updated amounts)
+  4. Subsidiary Transactions (old transactions deleted, new ones created for supplier ledger)
+
+**API Changes:**
+- **PATCH `/api/accounting/purchases?id=<billId>`**: New endpoint for updating bills. Validates bill is unpaid, then runs all updates in a Prisma transaction.
+- **GET `/api/accounting/purchases`**: Updated to include `journalEntry` with `lines` and nested `account` data for account auto-detection on edit.
+
+**Frontend Changes:**
+- Added `editingBill` state to track which bill is being edited
+- Added `handleEditBill(bill)` function that extracts account IDs from journal entry lines
+- Updated `handleSubmit` to use `PATCH` (edit) vs `POST` (create) based on `editingBill` state
+- Added Edit button in table actions column, disabled for non-unpaid bills
+- Dialog title and submit button text change dynamically based on edit mode
+
+**Constraints:**
+- Only bills with `UNPAID` status can be edited. Paid, partially paid, draft, and void bills are locked.
+
+**Key Files:**
+- `app/(dashboard)/accounting/purchases/page.tsx` - Edit button, edit state, form population from journal entry
+- `app/api/accounting/purchases/route.ts` - PATCH endpoint for bill update with cascade sync, GET updated with journal entry include
+
+---
+
+### Purchase Bill No Input VAT Checkbox (2026-04-22)
+
+**New Features:**
+- **No Input VAT Checkbox**: Added "No Input VAT" checkbox in the Create/Edit Purchase Bill dialog, next to the existing "VAT Inclusive" checkbox.
+- When checked, the system skips creating the Input VAT (account 2320) journal entry line, even if VAT is computed. This is useful for purchases that are not VAT-registered or are exempt from input tax credit.
+
+**API Changes:**
+- **POST `/api/accounting/purchases`**: Now accepts `noInputVat` boolean field. When `true`, skips the Input VAT line in the journal entry.
+- **PATCH `/api/accounting/purchases?id=<billId>`**: Same behavior — `noInputVat` flag prevents Input VAT journal entry line creation on update.
+
+**Frontend Changes:**
+- Added `noInputVat: false` to the form state in `purchases/page.tsx`
+- Added checkbox with label "No Input VAT" alongside the "VAT Inclusive" checkbox
+- Updated `handleEditBill` to reset `noInputVat: false` when opening the edit dialog
+
+**Key Files:**
+- `app/(dashboard)/accounting/purchases/page.tsx` - Added `noInputVat` state and checkbox UI
+- `app/api/accounting/purchases/route.ts` - POST and PATCH handlers respect `noInputVat` flag
+
+---
+
+### Payment Subsidiary Transaction Fix (2026-04-22)
+
+**Issue Fixed:** Subsidiary ledger reconciliation page did not reflect payment amounts. When a payment was recorded for a purchase bill, the AP subsidiary ledger showed no transaction, causing the reconciliation to show "Out of Balance".
+
+**Root Cause:** The payment API (`/api/accounting/payments`) created journal entries and updated bill records, but never created `SubsidiaryTransaction` records. The subsidiary ledger reconciliation reads from the `SubsidiaryTransaction` table, so payments were invisible to the reconciliation.
+
+**Fix Applied:** Added `SubsidiaryTransaction` creation in the payment API's transaction block. When a payment is made:
+1. Finds the supplier's subsidiary ledger (matching `SUPPLIER` type, supplier name, and AP account)
+2. Creates a `SubsidiaryTransaction` with `debit: amount` (reduces AP balance)
+3. Links it to the payment's journal entry for audit trail
+
+This mirrors the purchase bill creation pattern — bills create `credit` transactions (increasing AP), payments create `debit` transactions (decreasing AP).
+
+**Key Files:**
+- `app/api/accounting/payments/route.ts` - Added step 5: creates `SubsidiaryTransaction` when payment is recorded
