@@ -17,8 +17,8 @@ interface Vendor {
 }
 
 export default function PurchasesPage() {
-  const [bills, setBills] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [accounts, setAccounts] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [bills, setBills] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -36,7 +36,9 @@ export default function PurchasesPage() {
     apAccountId: '',
     isVatInclusive: false,
     noInputVat: false,
-    items: [{ description: '', quantity: '', unitPrice: '', total: 0 }],
+    ewtAccountId: '',
+    ewtPercentage: '',
+    items: [{ description: '', quantity: '1', unitPrice: '0', total: 0 }],
     totalAmount: 0,
   });
   const [payFormData, setPayFormData] = useState({
@@ -61,7 +63,7 @@ export default function PurchasesPage() {
     setFormData({
       supplierId: '', supplierName: '', date: new Date().toISOString().split('T')[0],
       dueDate: new Date().toISOString().split('T')[0], expenseAccountId: '', apAccountId: '',
-      isVatInclusive: false, noInputVat: false, items: [{ description: '', quantity: '', unitPrice: '', total: 0 }], totalAmount: 0,
+      isVatInclusive: false, noInputVat: false, ewtAccountId: '', ewtPercentage: '', items: [{ description: '', quantity: '1', unitPrice: '0', total: 0 }], totalAmount: 0,
     });
     setEditingBill(null);
   }
@@ -77,18 +79,22 @@ export default function PurchasesPage() {
         fetch('/api/accounting/purchases'),
         fetch('/api/accounting/accounts'),
       ]);
-      if (!billsRes.ok) throw new Error(`Failed to fetch bills: ${billsRes.status}`);
-      if (!accRes.ok) throw new Error(`Failed to fetch accounts: ${accRes.status}`);
-      const billsData = await billsRes.json();
-      const accountsData = await accRes.json();
-      setBills(billsData);
-      setAccounts(accountsData);
-      const cashAccts = accountsData
-        .filter((a: any) => a.type === 'ASSET' && a.code.startsWith('11'))
-        .sort((a: any, b: any) => a.code.localeCompare(b.code));
-      setCashAccounts(cashAccts);
+      const billsData = billsRes.ok ? await billsRes.json() : [];
+      const accountsData = accRes.ok ? await accRes.json() : [];
+      
+      setBills(Array.isArray(billsData) ? billsData : []);
+      setAccounts(Array.isArray(accountsData) ? accountsData : []);
+      
+      if (Array.isArray(accountsData)) {
+        const cashAccts = accountsData
+          .filter((a: any) => a.type === 'ASSET' && a.code.startsWith('11'))
+          .sort((a: any, b: any) => a.code.localeCompare(b.code));
+        setCashAccounts(cashAccts);
+      }
     } catch (err) {
       console.error('Error fetching bills:', err);
+      setBills([]);
+      setAccounts([]);
     } finally {
       setLoading(false);
     }
@@ -98,20 +104,24 @@ export default function PurchasesPage() {
     setIsVendorsLoading(true);
     try {
       const res = await fetch('/api/accounting/vendors');
-      if (!res.ok) throw new Error(`Failed to fetch vendors: ${res.status}`);
       const data = await res.json() as Vendor[];
-      setVendors(data);
+      if (Array.isArray(data)) {
+        setVendors(data);
+      } else {
+        setVendors([]);
+      }
     } catch (err) {
       console.error('Error fetching vendors:', err);
+      setVendors([]);
     } finally {
       setIsVendorsLoading(false);
     }
   }
 
-  const filteredVendors = vendors.filter(v =>
+  const filteredVendors = Array.isArray(vendors) ? vendors.filter(v =>
     (v.entityName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (v.entityCode || '').toLowerCase().includes(searchTerm.toLowerCase())
-  ).slice(0, 10);
+  ).slice(0, 10) : [];
 
   function handleSelectVendor(vendor: Vendor) {
     setFormData(prev => ({
@@ -137,7 +147,7 @@ export default function PurchasesPage() {
   const addItem = () => {
     setFormData({
       ...formData,
-      items: [...formData.items, { description: '', quantity: '', unitPrice: '', total: 0 }],
+      items: [...formData.items, { description: '', quantity: '1', unitPrice: '0', total: 0 }],
     });
   };
 
@@ -146,8 +156,8 @@ export default function PurchasesPage() {
     newItems[index] = { ...newItems[index], [field]: value };
 
     if (field === 'quantity' || field === 'unitPrice') {
-      const qty = field === 'quantity' ? (parseFloat(value as string) || 0) : newItems[index].quantity;
-      const price = field === 'unitPrice' ? (parseFloat(value as string) || 0) : newItems[index].unitPrice;
+      const qty = parseFloat(newItems[index].quantity) || 0;
+      const price = parseFloat(newItems[index].unitPrice) || 0;
       newItems[index].total = qty * price;
     }
 
@@ -178,6 +188,10 @@ export default function PurchasesPage() {
 
     let expenseAccountId = '';
     let apAccountId = '';
+    let ewtAccountId = '';
+    let ewtPercentage = '';
+    let hasInputVat = false;
+
     if (bill.journalEntry && bill.journalEntry.lines) {
       for (const line of bill.journalEntry.lines) {
         if (line.debit > 0 && line.account?.type === 'EXPENSE') {
@@ -185,6 +199,17 @@ export default function PurchasesPage() {
         }
         if (line.credit > 0 && line.account?.type === 'LIABILITY') {
           apAccountId = line.accountId;
+        }
+        if (line.credit > 0 && line.account?.code?.startsWith('234')) {
+          ewtAccountId = line.accountId;
+          // Try to extract percentage from memo like "Bill BILL-2026-5857 EWT (1%)"
+          const match = line.memo?.match(/\((\d+(?:\.\d+)?)\%\)/);
+          if (match) {
+            ewtPercentage = match[1];
+          }
+        }
+        if (line.account?.code === '2320') {
+          hasInputVat = true;
         }
       }
       if (!expenseAccountId && bill.journalEntry.lines.length > 0) {
@@ -202,8 +227,10 @@ export default function PurchasesPage() {
       dueDate: new Date(bill.dueDate).toISOString().split('T')[0],
       expenseAccountId,
       apAccountId,
-      isVatInclusive: false,
-      noInputVat: false,
+      isVatInclusive: false, // Hard to determine after the fact, default to false
+      noInputVat: !hasInputVat,
+      ewtAccountId,
+      ewtPercentage,
       items: bill.items.map((item: any) => ({
         description: item.description,
         quantity: item.quantity.toString(),
@@ -215,6 +242,27 @@ export default function PurchasesPage() {
     setSearchTerm(bill.supplierName);
     setShowDropdown(false);
     setIsDialogOpen(true);
+  }
+
+  async function handleResetBill(bill: any) {
+    if (!confirm(`Are you sure you want to reset bill ${bill.billNumber} to UNPAID? This will delete all associated payments.`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/api/accounting/purchases?id=${bill.id}&action=reset`, {
+        method: 'PUT',
+      });
+      if (res.ok) {
+        alert('Bill has been reset to UNPAID');
+        fetchData();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to reset bill');
+      }
+    } catch (err) {
+      console.error('Error resetting bill:', err);
+      alert('Failed to reset bill');
+    }
   }
 
   function handleOpenPayDialog(bill: any) {
@@ -400,6 +448,10 @@ export default function PurchasesPage() {
     (bill.billNumber || '').toLowerCase().includes(search.toLowerCase())
   );
 
+  const netOfVat = formData.isVatInclusive ? formData.totalAmount / 1.12 : formData.totalAmount;
+  const ewtPercent = parseFloat(formData.ewtPercentage) || 0;
+  const ewtAmount = netOfVat * (ewtPercent / 100);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -470,7 +522,7 @@ export default function PurchasesPage() {
                   <Input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
                 </div>
                 <div className="space-y-2">
-                  <Label>Label</Label>
+                  <Label>Due Date</Label>
                   <Input type="date" value={formData.dueDate} onChange={e => setFormData({...formData, dueDate: e.target.value})} required />
                 </div>
                 <div className="space-y-2">
@@ -519,14 +571,14 @@ export default function PurchasesPage() {
                     <input
                       type="checkbox"
                       checked={formData.noInputVat}
-                      onChange={(e) => setFormData(prev => ({ ...prev, noInputVat: e.target.checked }))}
+                      onChange={(e) => setFormData(prev => ({ ...prev, noInputVat: e.target.checked }))}        
                       className="h-4 w-4 rounded border-gray-300"
                     />
                     <span className="text-sm">No Input VAT</span>
                   </label>
                 </div>
               </div>
-              {formData.items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0) * (parseFloat(item.unitPrice) || 0), 0) > 0 && (
+              {formData.totalAmount > 0 && (
                 <div className="grid grid-cols-3 gap-4 p-4 bg-muted/50 rounded-lg">
                   <div>
                     <div className="text-xs text-muted-foreground">Net Amount</div>
@@ -548,6 +600,36 @@ export default function PurchasesPage() {
                       ? '₱' + formData.totalAmount.toFixed(2)
                       : '₱' + (formData.totalAmount * 1.12).toFixed(2)
                     }</div>
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>EWT Account (2340)</Label>
+                  <select className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={formData.ewtAccountId} onChange={e => setFormData({...formData, ewtAccountId: e.target.value})}>
+                    <option value="">Select EWT Account...</option>
+                    {accounts.filter(a => a.code.startsWith('234')).sort((a, b) => a.code.localeCompare(b.code)).map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>EWT %</Label>
+                  <Input type="number" step="0.01" value={formData.ewtPercentage} onChange={e => setFormData({...formData, ewtPercentage: e.target.value})} placeholder="0" />
+                </div>
+                <div className="space-y-2">
+                  <Label>EWT Amount</Label>
+                  <Input type="text" value={`₱${ewtAmount.toFixed(2)}`} disabled className="bg-muted" />
+                </div>
+              </div>
+              {ewtAmount > 0 && (
+                <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <div className="text-xs text-muted-foreground">EWT Base (Net of VAT)</div>
+                    <div className="text-lg font-semibold">₱{netOfVat.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">EWT Amount</div>
+                    <div className="text-lg font-semibold text-red-600">₱{ewtAmount.toFixed(2)}</div>
                   </div>
                 </div>
               )}
@@ -594,7 +676,7 @@ export default function PurchasesPage() {
         }
       }}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>Pay Purchase Bill {payingBill?.billNumber}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Pay Purchase Bill {payingBill?.billNumber}</DialogTitle></DialogHeader>    
           <div className="space-y-4 pt-4">
             <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
               <div>
@@ -603,15 +685,15 @@ export default function PurchasesPage() {
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Total Amount</div>
-                <div className="font-medium">&#8369;{(payingBill?.totalAmount ?? 0).toLocaleString()}</div>
+                <div className="font-medium">₱{(payingBill?.totalAmount ?? 0).toLocaleString()}</div>     
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Amount Paid</div>
-                <div className="font-medium">&#8369;{(payingBill?.amountPaid ?? 0).toLocaleString()}</div>
+                <div className="font-medium">₱{(payingBill?.amountPaid ?? 0).toLocaleString()}</div>      
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Remaining Balance</div>
-                <div className="font-semibold text-red-600">&#8369;{((payingBill?.totalAmount ?? 0) - (payingBill?.amountPaid ?? 0)).toLocaleString()}</div>
+                <div className="font-semibold text-red-600">₱{((payingBill?.totalAmount ?? 0) - (payingBill?.amountPaid ?? 0)).toLocaleString()}</div>
               </div>
             </div>
             <form onSubmit={handlePayBill} className="space-y-4">
@@ -661,7 +743,7 @@ export default function PurchasesPage() {
           <DialogHeader><DialogTitle>Payment History - Bill {payingBill?.billNumber}</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-4">
             {payments.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">No payments recorded for this bill</div>
+              <div className="text-center py-8 text-muted-foreground">No payments recorded for this bill</div>  
             ) : (
               <Table>
                 <TableHeader>
@@ -678,7 +760,7 @@ export default function PurchasesPage() {
                   {payments.map((payment: any) => (
                     <TableRow key={payment.id}>
                       <TableCell>{new Date(payment.paymentDate).toLocaleDateString()}</TableCell>
-                      <TableCell className="text-right font-medium">&#8369;{payment.amount.toLocaleString()}</TableCell>
+                      <TableCell className="text-right font-medium">₱{payment.amount.toLocaleString()}</TableCell>
                       <TableCell className="font-mono text-sm">{payment.referenceNumber || '-'}</TableCell>
                       <TableCell>{payment.cashAccount?.code} - {payment.cashAccount?.name}</TableCell>
                       <TableCell className="text-sm">{payment.notes || '-'}</TableCell>
@@ -716,12 +798,12 @@ export default function PurchasesPage() {
         }
       }}>
         <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>Edit Payment - Bill {payingBill?.billNumber}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Edit Payment - Bill {payingBill?.billNumber}</DialogTitle></DialogHeader>  
           <div className="space-y-4 pt-4">
             <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
               <div>
                 <div className="text-xs text-muted-foreground">Current Amount</div>
-                <div className="font-medium">&#8369;{editingPayment?.amount.toLocaleString()}</div>
+                <div className="font-medium">₱{editingPayment?.amount.toLocaleString()}</div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Payment Date</div>
@@ -745,7 +827,7 @@ export default function PurchasesPage() {
                   <select className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={payFormData.cashAccountId} onChange={e => setPayFormData({...payFormData, cashAccountId: e.target.value})} required>
                     <option value="">Select account...</option>
-                    {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                    {cashAccounts.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}       
                   </select>
                 </div>
                 <div className="space-y-2">
@@ -775,7 +857,7 @@ export default function PurchasesPage() {
             <div className="p-4 bg-muted/50 rounded-lg space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Amount:</span>
-                <span className="font-medium">&#8369;{deleteConfirmPayment?.amount.toLocaleString()}</span>
+                <span className="font-medium">₱{deleteConfirmPayment?.amount.toLocaleString()}</span>     
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Date:</span>
@@ -783,13 +865,13 @@ export default function PurchasesPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-muted-foreground">Reference:</span>
-                <span className="font-mono text-sm">{deleteConfirmPayment?.referenceNumber || '-'}</span>
+                <span className="font-mono text-sm">{deleteConfirmPayment?.referenceNumber || '-'}</span>       
               </div>
             </div>
             <p className="text-sm text-red-600">This action cannot be undone. The payment, journal entry, and subsidiary transaction will be permanently deleted.</p>
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="outline" onClick={() => setDeleteConfirmPayment(null)}>Cancel</Button>
-              <Button variant="destructive" onClick={handleConfirmDeletePayment}>Delete Payment</Button>
+              <Button variant="destructive" onClick={handleConfirmDeletePayment}>Delete Payment</Button>        
             </DialogFooter>
           </div>
         </DialogContent>
@@ -825,7 +907,7 @@ export default function PurchasesPage() {
                     <TableCell>{bill.supplierName}</TableCell>
                     <TableCell>{new Date(bill.date).toLocaleDateString()}</TableCell>
                     <TableCell>{new Date(bill.dueDate).toLocaleDateString()}</TableCell>
-                     <TableCell className="text-right font-medium">₱{(bill.totalAmount ?? 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right font-medium">₱{(bill.totalAmount ?? 0).toLocaleString()}</TableCell>
                     <TableCell>
                       <span className={`px-2 py-1 rounded-full text-xs ${
                         bill.status === 'PAID' ? 'bg-green-100 text-green-800' :
@@ -841,6 +923,11 @@ export default function PurchasesPage() {
                         <Button variant="ghost" size="icon" onClick={() => handleOpenPayDialog(bill)} disabled={bill.status === 'PAID' || bill.status === 'VOID'} title="Pay bill">
                           <DollarSign className="w-4 h-4" />
                         </Button>
+                        {(bill.status === 'PAID' || bill.status === 'PARTIALLY_PAID') && (
+                          <Button variant="ghost" size="icon" onClick={() => handleResetBill(bill)} title="Reset to unpaid" className="text-red-600 hover:text-red-700">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="icon" onClick={() => handleEditBill(bill)} disabled={bill.status !== 'UNPAID'} title="Edit bill">
                           <Edit className="w-4 h-4" />
                         </Button>

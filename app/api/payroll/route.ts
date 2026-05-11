@@ -14,6 +14,8 @@ import { cookies } from 'next/headers';
 import { hasAdminAccess } from '@/lib/auth-helpers';
 import { getEmployeeIdForUser } from '@/lib/user-employee-link';
 
+export const dynamic = 'force-dynamic';
+
 const PAYROLL_CACHE_PREFIX = 'payroll:';
 
 function calculateSemiMonthlySalary(monthlySalary: number, frequency: string): number {

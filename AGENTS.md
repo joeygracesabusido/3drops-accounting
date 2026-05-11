@@ -226,6 +226,228 @@ REDIS_URL=redis://localhost:6379  # Optional
 
 ## Recent Updates
 
+### Petty Cash TypeScript Interface Fixes (2026-04-30)
+
+**Issue:** TypeScript errors in petty-cash page showing "Property does not exist" for `Account.type` and `PettyCashFund.custodianId`.
+
+**Files Updated:**
+- `app/(dashboard)/accounting/petty-cash/page.tsx` - Added missing properties to interfaces
+
+**Changes Made:**
+1. Added `type: string` to `Account` interface (used for filtering expense accounts by type)
+2. Added `custodianId: string` to `PettyCashFund` interface (used when editing fund details)
+
+```typescript
+// Before: Account interface missing type
+interface Account {
+  id: string;
+  code: string;
+  name: string;
+}
+
+// After: Account interface with type
+interface Account {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+}
+
+// Before: PettyCashFund interface missing custodianId
+interface PettyCashFund {
+  id: string;
+  name: string;
+  fundAmount: number;
+  currentBalance: number;
+  cashAccountId: string;
+  expenseAccountId: string;
+  status: string;
+  createdAt: string;
+}
+
+// After: PettyCashFund interface with custodianId
+interface PettyCashFund {
+  id: string;
+  name: string;
+  fundAmount: number;
+  currentBalance: number;
+  cashAccountId: string;
+  expenseAccountId: string;
+  custodianId: string;
+  status: string;
+  createdAt: string;
+}
+```
+
+---
+
+### GL vs Subsidiary Ledger Balance Discrepancy Fix (2026-04-27)
+
+**Issue:** COA shows 2100 Accounts Payable balance of ₱67,162.94 while Subsidiary Ledger (Supplier) total is only ₱57,662.94 - a difference of ₱9,500.
+
+**Root Cause:** When Purchase Bills were created for suppliers NOT in the Vendors list (or with mismatched names), the GL journal entry was created but NO subsidiary transaction was recorded. The system only found the supplier ledger if the name EXACTLY matched an existing vendor entry.
+
+**Files Updated:**
+- `app/api/accounting/purchases/route.ts` - Auto-creates vendor in subsidiary ledger if not found
+- `app/api/accounting/payments/route.ts` - Auto-creates vendor in subsidiary ledger if not found
+- `app/api/accounting/journal/route.ts` - Added filter by reference for querying
+- `app/api/accounting/payments/route.ts` - Enhanced GET with reference filter and journal details
+
+**Fix Applied:**
+```typescript
+// Auto-create vendor if not found to ensure GL and subsidiary are in sync
+let supplierLedger = await tx.subsidiaryLedger.findFirst({
+  where: {
+    entityType: 'SUPPLIER',
+    entityName: supplierName,
+    accountId: apAccountId,
+  },
+});
+
+if (!supplierLedger) {
+  supplierLedger = await tx.subsidiaryLedger.create({
+    data: {
+      accountId: apAccountId,
+      entityCode: `SUP-${Date.now()}`,
+      entityName: supplierName,
+      entityType: 'SUPPLIER',
+      description: `Auto-created from Purchase Bill ${billNumber}`,
+    },
+  });
+}
+```
+
+**Querying Journal Entries:**
+- `GET /api/accounting/journal?reference=BILL-2026-5711` - Find bill journal entry
+- `GET /api/accounting/payments?reference=BILL-2026-5711` - Find payment with journal details
+
+---
+
+### Payment Debit Account Fix (2026-04-27)
+
+**Issue:** When paying a Purchase Bill with EWT (Expanded Withholding Tax), the journal entry was debiting the wrong account (2340 EWT instead of 2100 Accounts Payable).
+
+**Root Cause:** The code picked ANY credit line from the bill's journal entry, but if there were multiple credit lines (EWT and AP), it picked the first one found (EWT 2340).
+
+**Files Updated:**
+- `app/api/accounting/payments/route.ts` - Fixed POST and PATCH handlers to specifically find 2100
+
+**Fix Applied:**
+```typescript
+// Find the AP account (2100) specifically - avoid EWT or other credit accounts
+const apLine = je.lines.find((l: any) => l.credit > 0 && l.account?.code === '2100');
+apAccountId = apLine?.accountId || '';
+
+// Fallback: if no 2100 found, try any credit line that's NOT EWT (2340)
+if (!apAccountId) {
+  const fallbackLine = je.lines.find((l: any) => l.credit > 0 && l.account?.code !== '2340');
+  apAccountId = fallbackLine?.accountId || '';
+}
+```
+
+---
+
+### Vercel Deployment & EWT Balance Fix (2026-04-23)
+
+**Issues Fixed:**
+- **TypeScript Build Error**: Fixed `Type error: Property 'id' does not exist on type 'string'` in `app/api/accounting/payments/route.ts` where `journalEntryId.id` was incorrectly used on a string field.
+- **Unbalanced Journal Entries**: Fixed an issue in `app/api/accounting/purchases/route.ts` where journal entries were created with mismatched debits and credits when EWT was involved.
+- **Missing EWT Account (2340)**: Implemented an automatic fallback in the backend. If an EWT percentage is provided but the account is missing, it now defaults to **2340 (Expanded Withholding Tax)**.
+- **Smart Form Editing**: Updated the Purchases page UI to correctly extract EWT percentage and VAT status from existing journal entries when editing, preventing data loss on re-save.
+
+**Vercel Readiness Audit:**
+- **Dependencies**: Identified version mismatches between `next` (v14) and `eslint-config-next` (v15) that should be synced for stable builds.
+- **Prisma**: Verified singleton pattern and `@prisma/client` version compatibility.
+- **Environment**: Noted that `DATABASE_URL` and `NEXTAUTH_SECRET` are mandatory in Vercel.
+- **Face-API**: Confirmed `face-api.js` is handled correctly via dynamic imports and webpack shims to avoid server-side build failures.
+
+**Key Files:**
+- `app/api/accounting/payments/route.ts` - Fixed journalEntryId type error
+- `app/api/accounting/purchases/route.ts` - Balanced EWT journal entry logic
+- `app/(dashboard)/accounting/purchases/page.tsx` - Smart extraction of EWT/VAT from entries
+
+---
+
+### EWT & Input VAT for Expense Vouchers (2026-04-23)
+
+**Issue Fixed:** Expense Vouchers did not have EWT (Expanded Withholding Tax) and Input VAT handling, unlike Purchase Bills which already had this feature.
+
+**Files Updated:**
+- `app/(dashboard)/accounting/expenses/page.tsx` - Added EWT/VAT form fields to both new and edit dialogs
+- `app/api/accounting/expenses/route.ts` - Updated POST and PATCH handlers with VAT/EWT journal entry logic
+
+**UI Fields Added:**
+- `isVatInclusive` checkbox - Toggle 12% VAT calculation
+- `noInputVat` checkbox - Opt out of Input VAT claim
+- `ewtAccountId` dropdown - Select EWT account (234x codes)
+- `ewtPercentage` input - Enter withholding tax rate
+- Computed EWT Amount display (based on net of VAT)
+
+**Journal Entry Logic:**
+When VAT/EWT is applied, the journal entry now includes:
+- Debit: Expense accounts (per line items)
+- Debit: Input VAT (2320) if VAT toggle enabled and not opted out
+- Credit: EWT account for withholding amount
+- Credit: Cash for (Total - EWT), keeping entry balanced
+
+```typescript
+// Journal entry lines with VAT and EWT
+const journalEntryLines = [
+  ...items.map(item => ({ debit: item.amount, credit: 0 })),  // Expense debits
+  { accountId: inputVATAccount.id, debit: vatAmount, credit: 0 },   // Input VAT debit (if applicable)
+  { accountId: ewtAccountId, debit: 0, credit: ewtAmount }, // EWT credit
+  { accountId: cashAccountId, debit: 0, credit: totalAmount - ewtAmount }, // Cash credit (reduced by EWT)
+]
+```
+
+**Key Files:**
+- `app/(dashboard)/accounting/expenses/page.tsx` - Form UI with EWT/VAT fields
+- `app/api/accounting/expenses/route.ts` - API with tax-aware journal entries
+- `app/(dashboard)/accounting/purchases/page.tsx` - Reference implementation
+
+---
+
+### Multi-Location Clock In/Out Support (2026-04-22)
+
+**Issue Fixed:** Clock In/Clock Out buttons were disabled when employees were outside the geofence of the single active office location, even if they were within range of another configured office.
+
+**Root Cause:** The `fetchOfficeLocation` function in `time-logs/page.tsx` only fetched and used the single active location (`locations.find((loc) => loc.isActive)`). The `withinRange` state was computed against only that one location.
+
+**Files Updated:**
+- `app/(dashboard)/time-logs/page.tsx` - Updated state, fetching, distance calculation, UI, and clock-in/clock-out logic to support multiple office locations
+
+**Changes Made:**
+1. **Replaced single location with array:** Changed `officeLocation` (single object) to `officeLocations` (array of all locations)
+2. **Multiple distance tracking:** Replaced single `distance` with `distances` (Map of location ID → distance) and `closestLocation` (for error messages)
+3. **Updated fetching:** `fetchOfficeLocation` now loads all locations, not just the active one
+4. **Updated distance calculation:** The `useEffect` computes distance to **each** location and sets `withinRange = true` if **any** location is within range
+5. **Updated clock-in/clock-out conditions:** `canClockIn` / `canClockOut` now use `officeLocations.length` instead of `officeLocation`
+6. **Updated GPS status UI:** Displays all locations with their distances (✓/✗ per location)
+7. **Updated alert messages:** Error messages in `handleClockIn` and `handleClockOut` list all available locations
+
+```typescript
+// Before: Single active location
+const [officeLocation, setOfficeLocation] = useState<OfficeLocation | null>(null);
+const [distance, setDistance] = useState<number | null>(null);
+const withinRange = distance !== null && distance <= (officeLocation?.rangeMeters || 100);
+
+// After: Multiple locations
+const [officeLocations, setOfficeLocations] = useState<OfficeLocation[]>([]);
+const [distances, setDistances] = useState<Map<string, number>>(new Map());
+const [closestLocation, setClosestLocation] = useState<OfficeLocation | null>(null);
+const withinRange = officeLocations.some(loc => {
+  const d = distances.get(loc.id);
+  return d !== undefined && d <= (loc.rangeMeters || 100);
+});
+```
+
+**Key Files:**
+- `app/(dashboard)/time-logs/page.tsx` - Updated to support multiple office locations for clock in/out
+- `app/api/office-location/route.ts` - Already supports multiple locations (no changes needed)
+- `app/(dashboard)/settings/page.tsx` - Where users configure office locations
+
+---
+
 ### GAAP Financial Reporting & Beginning Balances (2026-04-20)
 
 **New Features:**
@@ -608,113 +830,128 @@ return new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
 
 ---
 
-### Subsidiary Ledger Balance & Reconciliation Fix (2026-04-21)
+### Database Performance Optimization (2026-05-04)
 
-**Issues Fixed:**
-- **Stale balance values**: The `SubsidiaryLedger` model had `debitTotal`, `creditTotal`, and `balance` fields that were NEVER updated when transactions were created. The API read these zero/stale values, causing "Out of Balance" errors in reconciliation.
-- **Wrong HTTP method**: The reconciliation endpoint in `subsidiary-transactions/route.ts` was using `DELETE` instead of `GET`.
-- **No DELETE route**: No way to delete subsidiary ledgers.
+**Issue:** Database queries for large datasets (Time Logs, Journal Entries, Employees) were slowing down dashboard and reporting features.
+
+**Fix Applied:**
+Added over **40 targeted indexes** to the Prisma schema and synchronized with MongoDB.
+
+**Key Models Indexed:**
+- **Employee**: `department`, `isActive`, `userId`
+- **LeaveRequest / OvertimeRequest**: Compound indexes on `[employeeId, status]` and date ranges
+- **Accounting**: `date`, `reference`, and `status` for Journal Entries; `accountId` and `entryId` for Journal Lines
+- **Assets / Petty Cash**: Indexed `status`, `categoryId`, and `date` for faster list views and filtering
+- **Advances**: Indexed `employeeId` and `status` for balance tracking
+
+**Action Taken:**
+1. Updated `prisma/schema.prisma` with `@@index` definitions.
+2. Ran `npx prisma db push` to apply indexes to MongoDB.
+
+---
+
+### Role-Based Access Control (RBAC) & Navigation (2026-05-04)
+
+**Issue:** Users with the `EMPLOYEE` role could see and potentially access sensitive administrative modules like Accounting and Asset Inventory.
+
+**Fixes Applied:**
+- **Sidebar Navigation**: Updated `app/(dashboard)/layout.tsx` to mark **Accounting**, **Asset Inventory**, **Users**, and **Employees** as `adminOnly`. These are now hidden for the `EMPLOYEE` role.
+- **Global Middleware Enforcement**: Updated `middleware.ts` to intercept and redirect `EMPLOYEE` users from restricted paths (e.g., `/accounting`, `/asset-inventory`, `/users`, `/employees`, `/reports`, `/settings`) back to the dashboard.
+- **Data Isolation**: Verified that core HRIS modules (Leaves, Overtime, Time Logs, Payroll, Advances) correctly filter data to ensure employees only see their own records.
 
 **Files Updated:**
-- `app/api/accounting/subsidiary-ledgers/route.ts` - GET handler now fetches all `subsidiaryTransaction` records and calculates balances dynamically. Added DELETE route for removing subsidiary ledgers.
-- `app/api/accounting/subsidiary-transactions/route.ts` - Changed `DELETE` to `GET` for reconciliation endpoint. Now recalculates SL totals from transactions instead of stale stored values.
-
-**Changes Made:**
-1. **Dynamic balance calculation**: The subsidiary-ledgers GET handler now includes all `transactions` for each ledger, then calculates `debitTotal`, `creditTotal`, and `balance` from the transaction records.
-2. **Dynamic reconciliation**: The subsidiary-transactions GET (reconciliation) endpoint now iterates through all control accounts, fetches their ledgers with transactions, and calculates SL totals dynamically.
-3. **Added DELETE route**: New DELETE endpoint in `subsidiary-ledgers/route.ts` allows deleting subsidiary ledgers by ID.
-
-```typescript
-// Before: Used stale ledger.balance field
-const totalBalance = ledgers.reduce((sum, ledger) => sum + ledger.balance, 0);
-
-// After: Calculates from transactions dynamically
-const recalculatedLedgers = ledgers.map(ledger => {
-  const debitTotal = ledger.transactions.reduce((sum, t) => sum + (t.debit || 0), 0);
-  const creditTotal = ledger.transactions.reduce((sum, t) => sum + (t.credit || 0), 0);
-  const balance = debitTotal - creditTotal;
-  return { ...ledger, debitTotal, creditTotal, balance };
-});
-```
-
-**How Reconciliation Works Now:**
-1. API fetches all control accounts (`hasSubsidiaryLedger: true`)
-2. For each account, fetches all subsidiary ledgers with their transactions
-3. Calculates SL balance dynamically from `debit - credit` of all transactions
-4. Calculates GL balance from `journalLine` aggregate
-5. Compares GL vs SL — if difference < 0.01, `isBalanced: true`
-
-**Key Files:**
-- `app/api/accounting/subsidiary-ledgers/route.ts` - Dynamic balance calculation, DELETE route
-- `app/api/accounting/subsidiary-transactions/route.ts` - Fixed GET reconciliation, dynamic SL calculation
+- `app/(dashboard)/layout.tsx` - Updated `navItems` with `adminOnly` flags
+- `middleware.ts` - Added global role-based path restrictions
 
 ---
 
-### Purchase Bill Edit/Update Feature (2026-04-22)
+### Vercel Deployment & Type Safety Fixes (2026-05-04)
 
-**New Features:**
-- **Edit Button**: Added pencil icon edit button in the Purchase Bills table actions column. Only visible/enabled for bills with `UNPAID` status.
-- **Edit Modal**: Clicking Edit opens the same "Create Purchase Bill" dialog pre-populated with the bill's data, with the title changed to "Edit Purchase Bill" and button to "Update Bill".
-- **Account Auto-Detection**: When editing, the expense account and AP account are automatically populated by reading the journal entry lines (debit line → expense account, credit line → AP account).
-- **Full Cascade Sync**: Updates propagate to all connected modules:
-  1. Purchase Bill record (date, due date, supplier, total amount)
-  2. Purchase Bill Items (old items deleted, new items created)
-  3. Journal Entry (old entry deleted, new entry created with updated amounts)
-  4. Subsidiary Transactions (old transactions deleted, new ones created for supplier ledger)
+**Issue:** Build failures on Vercel due to duplicate definitions, type mismatches, and Prisma relation errors.
 
-**API Changes:**
-- **PATCH `/api/accounting/purchases?id=<billId>`**: New endpoint for updating bills. Validates bill is unpaid, then runs all updates in a Prisma transaction.
-- **GET `/api/accounting/purchases`**: Updated to include `journalEntry` with `lines` and nested `account` data for account auto-detection on edit.
-
-**Frontend Changes:**
-- Added `editingBill` state to track which bill is being edited
-- Added `handleEditBill(bill)` function that extracts account IDs from journal entry lines
-- Updated `handleSubmit` to use `PATCH` (edit) vs `POST` (create) based on `editingBill` state
-- Added Edit button in table actions column, disabled for non-unpaid bills
-- Dialog title and submit button text change dynamically based on edit mode
-
-**Constraints:**
-- Only bills with `UNPAID` status can be edited. Paid, partially paid, draft, and void bills are locked.
+**Fixes Applied:**
+1. **Duplicate Variable Fix**: Removed redundant definition of `liabCredit` in `app/(dashboard)/accounting/vendors/page.tsx`.
+2. **ESLint Readiness**: Resolved `no-explicit-any` errors in `app/api/accounting/journal/route.ts` by using proper `Prisma.JournalEntryWhereInput` types.
+3. **Petty Cash Type Safety**: Fixed 13+ type errors in `app/(dashboard)/accounting/petty-cash/page.tsx` by defining proper `Liquidation` and `Disbursement` interfaces and fixing comparison logic.
+4. **Prisma Relation Fix**: Added missing back-references in `JournalEntry` model for `PurchaseBill`, `SalesInvoice`, and `Expense` to resolve "property does not exist" errors in API routes.
+5. **Verified Build**: Confirmed deployment readiness with `npm run lint` and `npx tsc --noEmit`.
 
 **Key Files:**
-- `app/(dashboard)/accounting/purchases/page.tsx` - Edit button, edit state, form population from journal entry
-- `app/api/accounting/purchases/route.ts` - PATCH endpoint for bill update with cascade sync, GET updated with journal entry include
+- `app/(dashboard)/accounting/vendors/page.tsx`
+- `app/(dashboard)/accounting/petty-cash/page.tsx`
+- `app/api/accounting/journal/route.ts`
+- `prisma/schema.prisma`
+- `middleware.ts`
 
 ---
 
-### Purchase Bill No Input VAT Checkbox (2026-04-22)
+### Vendor Payment Feature (2026-04-28)
 
-**New Features:**
-- **No Input VAT Checkbox**: Added "No Input VAT" checkbox in the Create/Edit Purchase Bill dialog, next to the existing "VAT Inclusive" checkbox.
-- When checked, the system skips creating the Input VAT (account 2320) journal entry line, even if VAT is computed. This is useful for purchases that are not VAT-registered or are exempt from input tax credit.
+**New Feature:**
+- **Pay Vendor Bills** - Click the `$` button on any vendor to open payment dialog
+- Payment Dialog shows:
+  - Total Outstanding Balance
+  - List of unpaid bills with balances
+  - Payment Amount field (editable)
+  - Cash Account dropdown (shows all accounts)
+  - Payment Date, Reference Number, Notes fields
 
-**API Changes:**
-- **POST `/api/accounting/purchases`**: Now accepts `noInputVat` boolean field. When `true`, skips the Input VAT line in the journal entry.
-- **PATCH `/api/accounting/purchases?id=<billId>`**: Same behavior — `noInputVat` flag prevents Input VAT journal entry line creation on update.
+**How to Pay a Vendor:**
+1. Go to `/accounting/vendors`
+2. Click the `$` (dollar sign) button next to a vendor with balance
+3. Edit the payment amount if needed
+4. Select a cash account from dropdown
+5. Click "Pay" to process payment
 
-**Frontend Changes:**
-- Added `noInputVat: false` to the form state in `purchases/page.tsx`
-- Added checkbox with label "No Input VAT" alongside the "VAT Inclusive" checkbox
-- Updated `handleEditBill` to reset `noInputVat: false` when opening the edit dialog
+**API:**
+- `POST /api/accounting/payments/batch` - Process vendor payment
 
-**Key Files:**
-- `app/(dashboard)/accounting/purchases/page.tsx` - Added `noInputVat` state and checkbox UI
-- `app/api/accounting/purchases/route.ts` - POST and PATCH handlers respect `noInputVat` flag
+**Files Updated:**
+- `app/(dashboard)/accounting/vendors/page.tsx` - Added payment dialog with $ button
+- `app/api/accounting/payments/batch/route.ts` - Payment processing API
 
 ---
 
-### Payment Subsidiary Transaction Fix (2026-04-22)
+### Advances & Schedules Bug Fixes (2026-05-04)
 
-**Issue Fixed:** Subsidiary ledger reconciliation page did not reflect payment amounts. When a payment was recorded for a purchase bill, the AP subsidiary ledger showed no transaction, causing the reconciliation to show "Out of Balance".
+**Issues Fixed:**
+1. **Prisma Date Field Error** - `Unknown argument 'date'. Did you mean 'type'?`
+   - The `date` field already existed in Prisma schema but needed `npx prisma generate` to regenerate client
+2. **Edit Advance Date Picker** - Date not showing in edit modal
+   - Fixed by converting ISO date string to `YYYY-MM-DD` format using `d.toISOString().split('T')[0]`
+3. **Bulk Assign Disabled** - Schedules page bulk assign button always disabled
+   - Added `disabled={true}` with grayed styling
+4. **Maximum Update Depth Exceeded** - Infinite loop in schedules page
+   - Changed useEffect dependency from `[fetchData]` to `[startDate]` to prevent recreation on every render
 
-**Root Cause:** The payment API (`/api/accounting/payments`) created journal entries and updated bill records, but never created `SubsidiaryTransaction` records. The subsidiary ledger reconciliation reads from the `SubsidiaryTransaction` table, so payments were invisible to the reconciliation.
+**Files Updated:**
+- `prisma/schema.prisma` - Already had `date` field, ran `npx prisma generate`
+- `app/(dashboard)/payroll/advances/page.tsx` - Fixed date conversion in `handleEdit` function (lines 150-167)
+- `app/(dashboard)/schedules/page.tsx` - Disabled bulk assign button (line 318-324), fixed useEffect dependency (line 140)
 
-**Fix Applied:** Added `SubsidiaryTransaction` creation in the payment API's transaction block. When a payment is made:
-1. Finds the supplier's subsidiary ledger (matching `SUPPLIER` type, supplier name, and AP account)
-2. Creates a `SubsidiaryTransaction` with `debit: amount` (reduces AP balance)
-3. Links it to the payment's journal entry for audit trail
+---
 
-This mirrors the purchase bill creation pattern — bills create `credit` transactions (increasing AP), payments create `debit` transactions (decreasing AP).
+### Employee Face Self-Enrollment (2026-05-05)
 
-**Key Files:**
-- `app/api/accounting/payments/route.ts` - Added step 5: creates `SubsidiaryTransaction` when payment is recorded
+**New Feature:**
+Employees can now enroll their own face from the Time Logs page without needing admin assistance.
+
+**How to Enroll:**
+1. Employee logs in and visits `/time-logs`
+2. Clicks the green "Enroll My Face" button in the header
+3. Opens face capture modal in enrollment mode
+4. Captures face → saved to database via API
+5. Can now use face verification for clock-in/out
+
+**UI Elements Added:**
+- "Enroll My Face" button in header (visible only to EMPLOYEE role)
+- Face enrollment modal with status message display
+- State variables: `isEnrolling`, `faceEnrollStatus`
+
+**Authorization Logic:**
+- EMPLOYEE: Can enroll their own face (email must match logged-in user)
+- ADMIN/HR: Can enroll any employee's face
+
+**Files Updated:**
+- `app/(dashboard)/time-logs/page.tsx` - Added enrollment button, modal, and handler
+- `app/api/employees/[id]/face/route.ts` - Updated to allow EMPLOYEE role to enroll own face

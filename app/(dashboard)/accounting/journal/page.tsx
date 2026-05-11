@@ -8,21 +8,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Trash2, Scale, FileText, Search } from 'lucide-react';
+import { Plus, Trash2, Scale, FileText, Search, Edit } from 'lucide-react';
 
 interface JournalLine {
   accountId: string;
   accountName: string;
-  debit: number;
-  credit: number;
+  subsidiaryLedgerId: string;
+  debit: number | string;
+  credit: number | string;
   memo: string;
 }
 
 export default function JournalPage() {
   const [entries, setEntries] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
+  const [subsidiaryLedgers, setSubsidiaryLedgers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [viewEntry, setViewEntry] = useState<any>(null);
   const [search, setSearch] = useState('');
@@ -32,8 +35,8 @@ export default function JournalPage() {
     description: '',
     reference: '',
     lines: [
-      { accountId: '', accountName: '', debit: 0, credit: 0, memo: '' },
-      { accountId: '', accountName: '', debit: 0, credit: 0, memo: '' },
+      { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' },
+      { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' },
     ],
   });
 
@@ -44,14 +47,17 @@ export default function JournalPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [entriesRes, accountsRes] = await Promise.all([
+      const [entriesRes, accountsRes, subsidiaryRes] = await Promise.all([
         fetch('/api/accounting/journal'),
         fetch('/api/accounting/accounts'),
+        fetch('/api/accounting/subsidiary-ledgers'),
       ]);
       const entriesData = await entriesRes.json();
       const accountsData = await accountsRes.json();
+      const subsidiaryData = await subsidiaryRes.json();
       setEntries(entriesData);
       setAccounts(accountsData);
+      setSubsidiaryLedgers(subsidiaryData);
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -62,7 +68,7 @@ export default function JournalPage() {
   const addLine = () => {
     setFormData({
       ...formData,
-      lines: [...formData.lines, { accountId: '', accountName: '', debit: 0, credit: 0, memo: '' }],
+      lines: [...formData.lines, { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' }],
     });
   };
 
@@ -71,7 +77,7 @@ export default function JournalPage() {
     setFormData({ ...formData, lines: newLines });
   };
 
-  const updateLine = (index: number, field: keyof JournalLine, value: string | number) => {
+  const updateLine = (index: number, field: keyof JournalLine, value: any) => {
     const newLines = [...formData.lines];
     newLines[index] = { ...newLines[index], [field]: value };
 
@@ -79,49 +85,85 @@ export default function JournalPage() {
     if (field === 'accountId') {
       const account = accounts.find(a => a.id === value);
       newLines[index].accountName = account ? account.name : '';
+      // Clear subsidiary if account doesn't have it
+      if (!account?.hasSubsidiaryLedger) {
+        newLines[index].subsidiaryLedgerId = '';
+      }
     }
 
     setFormData({ ...formData, lines: newLines });
-  };
+    };
 
-  async function handleSubmit(e: React.FormEvent) {
+    const handleEdit = (entry: any) => {
+    setEditingId(entry.id);
+    setFormData({
+      date: new Date(entry.date).toISOString().split('T')[0],
+      description: entry.description,
+      reference: entry.reference || '',
+      lines: entry.lines.map((l: any) => ({
+        accountId: l.accountId,
+        accountName: l.account?.name || '',
+        subsidiaryLedgerId: l.subsidiaryLedgerId || '',
+        debit: l.debit || '',
+        credit: l.credit || '',
+        memo: l.memo || '',
+      })),
+    });
+    setIsDialogOpen(true);
+    };
+
+    async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    const hasDebitOrCredit = formData.lines.some(l => l.debit || l.credit);
+    if (!hasDebitOrCredit) {
+      alert('Please enter at least one debit or credit amount');
+      return;
+    }
+
     try {
-      const res = await fetch('/api/accounting/journal', {
-        method: 'POST',
+      const url = '/api/accounting/journal';
+      const method = editingId ? 'PUT' : 'POST';
+      const body = editingId ? { ...formData, id: editingId } : formData;
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(body),
       });
 
       if (res.ok) {
         setIsDialogOpen(false);
+        setEditingId(null);
         setFormData({
           date: new Date().toISOString().split('T')[0],
           description: '',
           reference: '',
           lines: [
-            { accountId: '', accountName: '', debit: 0, credit: 0, memo: '' },
-            { accountId: '', accountName: '', debit: 0, credit: 0, memo: '' },
+            { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' },
+            { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' },
           ],
         });
         fetchData();
       } else {
         const data = await res.json();
-        alert(data.error || 'Failed to post journal entry');
+        alert(data.error || `Failed to ${editingId ? 'update' : 'post'} journal entry`);
       }
     } catch (err) {
-      console.error('Error posting entry:', err);
+      console.error('Error processing entry:', err);
     }
-  }
+    }
+
 
   const totalDebit = formData.lines.reduce((sum, l) => sum + (Number(l.debit) || 0), 0);
   const totalCredit = formData.lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0);
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
+  const hasAnyValue = formData.lines.some(l => l.debit || l.credit);
 
-  const filteredEntries = entries.filter(entry =>
-    entry.description.toLowerCase().includes(search.toLowerCase()) ||
-    entry.reference?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredEntries = Array.isArray(entries) ? entries.filter(entry =>
+    (entry.description?.toLowerCase() || '').includes(search.toLowerCase()) ||
+    (entry.reference?.toLowerCase() || '').includes(search.toLowerCase())
+  ) : [];
 
   return (
     <div className="space-y-6">
@@ -131,39 +173,53 @@ export default function JournalPage() {
           <p className="text-muted-foreground">Record and manage your double-entry transactions</p>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) {
+            setEditingId(null);
+            setFormData({
+              date: new Date().toISOString().split('T')[0],
+              description: '',
+              reference: '',
+              lines: [
+                { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' },
+                { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' },
+              ],
+            });
+          }
+        }}>
           <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
+            <Button className="flex items-center gap-2" onClick={() => setEditingId(null)}>
               <Plus className="w-4 h-4" />
               New Entry
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-4xl">
+          <DialogContent className="max-w-6xl">
             <DialogHeader>
-              <DialogTitle>Post Journal Entry</DialogTitle>
+              <DialogTitle>{editingId ? 'Edit Journal Entry' : 'Post Journal Entry'}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-6 pt-4">
-              <div className="grid grid-cols-3 gap-4">
+            <form onSubmit={handleSubmit} className="space-y-6 pt-4 text-lg">
+              <div className="grid grid-cols-3 gap-6">
                 <div className="space-y-2">
-                  <Label>Date</Label>
-                  <Input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
+                  <Label className="text-base">Date</Label>
+                  <Input type="date" className="h-11 text-base" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
                 </div>
                 <div className="space-y-2 col-span-2">
-                  <Label>Description</Label>
-                  <Input placeholder="Reason for transaction" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} required />
+                  <Label className="text-base">Description</Label>
+                  <Input placeholder="Reason for transaction" className="h-11 text-base" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} required />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-6">
                 <div className="space-y-2">
-                  <Label>Reference #</Label>
-                  <Input placeholder="Invoice # or Bill #" value={formData.reference} onChange={e => setFormData({...formData, reference: e.target.value})} />
+                  <Label className="text-base">Reference #</Label>
+                  <Input placeholder="Invoice # or Bill #" className="h-11 text-base" value={formData.reference} onChange={e => setFormData({...formData, reference: e.target.value})} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Balance Check</Label>
-                  <div className={`flex items-center gap-2 p-2 rounded-md border ${isBalanced ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
-                    <Scale className="w-4 h-4" />
-                    <span className="text-sm font-medium">
+                  <Label className="text-base">Balance Check</Label>
+                  <div className={`flex items-center gap-2 p-2.5 rounded-md border ${isBalanced ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                    <Scale className="w-5 h-5" />
+                    <span className="text-base font-bold">
                       {isBalanced ? 'Balanced' : `Out of Balance: ₱${(totalDebit - totalCredit).toFixed(2)}`}
                     </span>
                   </div>
@@ -172,78 +228,108 @@ export default function JournalPage() {
 
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <Label className="text-base font-semibold">Transaction Lines</Label>
-                  <Button type="button" variant="outline" size="sm" onClick={addLine} className="flex items-center gap-2">
-                    <Plus className="w-3 h-3" /> Add Line
+                  <Label className="text-lg font-bold">Transaction Lines</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={addLine} className="flex items-center gap-2 h-10 px-4">
+                    <Plus className="w-4 h-4" /> Add Line
                   </Button>
                 </div>
                 <div className="border rounded-lg overflow-hidden">
                   <Table>
                     <TableHeader className="bg-muted/50">
                       <TableRow>
-                        <TableHead className="w-1/3">Account</TableHead>
-                        <TableHead>Debit</TableHead>
-                        <TableHead>Credit</TableHead>
-                        <TableHead>Memo</TableHead>
-                        <TableHead className="w-10"></TableHead>
+                        <TableHead className="w-[300px] text-base font-bold">Account</TableHead>
+                        <TableHead className="w-[280px] text-base font-bold">Subsidiary</TableHead>
+                        <TableHead className="w-[160px] text-base font-bold">Debit</TableHead>
+                        <TableHead className="w-[160px] text-base font-bold">Credit</TableHead>
+                        <TableHead className="text-base font-bold">Memo</TableHead>
+                        <TableHead className="w-12"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {formData.lines.map((line, index) => (
-                        <TableRow key={index}>
-                          <TableCell>
-                            <select
-                              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
-                              value={line.accountId}
-                              onChange={e => updateLine(index, 'accountId', e.target.value)}
-                              required
-                            >
-                              <option value="">Select Account...</option>
-                              {accounts.map(acc => (
-                                <option key={acc.id} value={acc.id}>{acc.code} - {acc.name}</option>
-                              ))}
-                            </select>
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="0.00"
-                              value={line.debit}
-                              onChange={e => updateLine(index, 'debit', parseFloat(e.target.value) || 0)}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              placeholder="0.00"
-                              value={line.credit}
-                              onChange={e => updateLine(index, 'credit', parseFloat(e.target.value) || 0)}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              placeholder="Optional note"
-                              value={line.memo}
-                              onChange={e => updateLine(index, 'memo', e.target.value)}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="icon" onClick={() => removeLine(index)} disabled={formData.lines.length <= 2}>
-                              <Trash2 className="w-4 h-4 text-muted-foreground" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {formData.lines.map((line, index) => {
+                        const selectedAccount = accounts.find(a => a.id === line.accountId);
+                        const filteredSubsidiaries = subsidiaryLedgers.filter(sl => 
+                          sl.accountId === line.accountId || (selectedAccount?.subsidiaryType && sl.entityType === selectedAccount.subsidiaryType)
+                        );
+
+                        return (
+                          <TableRow key={index} className="hover:bg-muted/30">
+                            <TableCell>
+                              <select
+                                className="w-full h-11 rounded-md border border-input bg-background px-3 py-1 text-base focus:ring-2 focus:ring-primary"
+                                value={line.accountId}
+                                onChange={e => updateLine(index, 'accountId', e.target.value)}
+                                required
+                              >
+                                <option value="">Select Account...</option>
+                                {accounts.map(acc => (
+                                  <option key={acc.id} value={acc.id}>{acc.code} - {acc.name}</option>
+                                ))}
+                              </select>
+                            </TableCell>
+                            <TableCell>
+                              {selectedAccount?.hasSubsidiaryLedger ? (
+                                <select
+                                  className="w-full h-11 rounded-md border border-input bg-background px-3 py-1 text-base focus:ring-2 focus:ring-primary"
+                                  value={line.subsidiaryLedgerId}
+                                  onChange={e => updateLine(index, 'subsidiaryLedgerId', e.target.value)}
+                                  required
+                                >
+                                  <option value="">Select Subsidiary...</option>
+                                  {filteredSubsidiaries.map(sl => (
+                                    <option key={sl.id} value={sl.id}>{sl.entityCode} - {sl.entityName}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <div className="text-sm text-muted-foreground px-3 italic">Not required</div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                className="h-11 text-base font-semibold text-primary"
+                                value={line.debit}
+                                onChange={e => updateLine(index, 'debit', e.target.value)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                className="h-11 text-base font-semibold text-primary"
+                                value={line.credit}
+                                onChange={e => updateLine(index, 'credit', e.target.value)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                placeholder="Optional note"
+                                className="h-11 text-base"
+                                value={line.memo}
+                                onChange={e => updateLine(index, 'memo', e.target.value)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Button variant="ghost" size="icon" className="h-10 w-10" onClick={() => removeLine(index)} disabled={formData.lines.length <= 2}>
+                                <Trash2 className="w-5 h-5 text-muted-foreground hover:text-destructive" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
               </div>
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={!isBalanced}>Post Transaction</Button>
+              <DialogFooter className="gap-4">
+                <Button variant="outline" className="h-11 px-8 text-base" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                <Button type="submit" className="h-11 px-8 text-base font-bold" disabled={!isBalanced || !hasAnyValue}>
+                  {editingId ? 'Update Transaction' : 'Post Transaction'}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -251,24 +337,24 @@ export default function JournalPage() {
       </div>
 
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-6xl">
           <DialogHeader>
-            <DialogTitle>View Journal Entry</DialogTitle>
+            <DialogTitle className="text-2xl">View Journal Entry</DialogTitle>
           </DialogHeader>
           {viewEntry && (
             <div className="space-y-6 pt-4">
-              <div className="grid grid-cols-3 gap-4 bg-muted/50 p-4 rounded-lg">
+              <div className="grid grid-cols-3 gap-6 bg-muted/50 p-6 rounded-lg">
                 <div>
-                  <p className="text-sm text-muted-foreground">Date</p>
-                  <p className="font-medium">{new Date(viewEntry.date).toLocaleDateString()}</p>
+                  <p className="text-base text-muted-foreground mb-1">Date</p>
+                  <p className="text-lg font-bold">{new Date(viewEntry.date).toLocaleDateString()}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-sm text-muted-foreground">Description</p>
-                  <p className="font-medium">{viewEntry.description}</p>
+                  <p className="text-base text-muted-foreground mb-1">Description</p>
+                  <p className="text-lg font-bold">{viewEntry.description}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Reference #</p>
-                  <p className="font-medium">{viewEntry.reference || 'N/A'}</p>
+                  <p className="text-base text-muted-foreground mb-1">Reference #</p>
+                  <p className="text-lg font-bold font-mono">{viewEntry.reference || 'N/A'}</p>
                 </div>
               </div>
 
@@ -276,33 +362,44 @@ export default function JournalPage() {
                 <Table>
                   <TableHeader className="bg-muted/50">
                     <TableRow>
-                      <TableHead>Account</TableHead>
-                      <TableHead>Memo</TableHead>
-                      <TableHead className="text-right">Debit</TableHead>
-                      <TableHead className="text-right">Credit</TableHead>
+                      <TableHead className="text-base font-bold">Account</TableHead>
+                      <TableHead className="text-base font-bold">Subsidiary</TableHead>
+                      <TableHead className="text-base font-bold">Memo</TableHead>
+                      <TableHead className="text-right text-base font-bold">Debit</TableHead>
+                      <TableHead className="text-right text-base font-bold">Credit</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {viewEntry.lines.map((line: any, idx: number) => (
-                      <TableRow key={idx}>
-                        <TableCell className="font-medium">{line.account?.name || 'Unknown Account'} {line.account?.code ? `(${line.account.code})` : ''}</TableCell>
-                        <TableCell>{line.memo || '-'}</TableCell>
-                        <TableCell className="text-right">{line.debit > 0 ? `₱${line.debit.toLocaleString()}` : '-'}</TableCell>
-                        <TableCell className="text-right">{line.credit > 0 ? `₱${line.credit.toLocaleString()}` : '-'}</TableCell>
+                    {(viewEntry.lines || []).map((line: any, idx: number) => (
+                      <TableRow key={idx} className="hover:bg-muted/10">
+                        <TableCell className="font-bold text-base py-4">
+                          {line.account?.name || 'Unknown Account'} {line.account?.code ? `(${line.account.code})` : ''}
+                        </TableCell>
+                        <TableCell>
+                          {line.subsidiaryLedger ? (
+                            <div className="text-base">
+                              <span className="font-bold text-primary">{line.subsidiaryLedger.entityName}</span>
+                              <span className="text-muted-foreground ml-1 text-sm">({line.subsidiaryLedger.entityCode})</span>
+                            </div>
+                          ) : '-'}
+                        </TableCell>
+                        <TableCell className="text-base">{line.memo || '-'}</TableCell>
+                        <TableCell className="text-right text-lg font-bold text-primary">{line.debit > 0 ? `₱${line.debit.toLocaleString()}` : '-'}</TableCell>
+                        <TableCell className="text-right text-lg font-bold text-primary">{line.credit > 0 ? `₱${line.credit.toLocaleString()}` : '-'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
-              <div className="flex justify-end gap-12 px-4 py-2 bg-muted/20 rounded-md font-semibold">
+              <div className="flex justify-end gap-12 px-6 py-4 bg-muted/20 rounded-md font-bold text-xl">
                 <span>Total:</span>
-                <span className="w-24 text-right">₱{viewEntry.lines.reduce((sum: number, l: any) => sum + l.debit, 0).toLocaleString()}</span>
-                <span className="w-24 text-right">₱{viewEntry.lines.reduce((sum: number, l: any) => sum + l.credit, 0).toLocaleString()}</span>
+                <span className="w-32 text-right">₱{(viewEntry.lines || []).reduce((sum: number, l: any) => sum + (l.debit || 0), 0).toLocaleString()}</span>
+                <span className="w-32 text-right">₱{(viewEntry.lines || []).reduce((sum: number, l: any) => sum + (l.credit || 0), 0).toLocaleString()}</span>
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button onClick={() => setIsViewDialogOpen(false)}>Close</Button>
+            <Button className="h-11 px-8 text-base font-bold" onClick={() => setIsViewDialogOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -344,7 +441,7 @@ export default function JournalPage() {
                 </TableRow>
               ) : (
                 filteredEntries.map(entry => {
-                  const total = entry.lines.reduce((sum: number, l: any) => sum + l.debit, 0);
+                  const total = (entry.lines || []).reduce((sum: number, l: any) => sum + (l.debit || 0), 0);
                   return (
                     <TableRow key={entry.id}>
                       <TableCell>{new Date(entry.date).toLocaleDateString()}</TableCell>
@@ -352,17 +449,27 @@ export default function JournalPage() {
                       <TableCell>{entry.description}</TableCell>
                       <TableCell className="text-right font-medium">₱{total.toLocaleString()}</TableCell>
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="flex items-center gap-2"
-                          onClick={() => {
-                            setViewEntry(entry);
-                            setIsViewDialogOpen(true);
-                          }}
-                        >
-                          <FileText className="w-4 h-4" /> View
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="flex items-center gap-2"
+                            onClick={() => {
+                              setViewEntry(entry);
+                              setIsViewDialogOpen(true);
+                            }}
+                          >
+                            <FileText className="w-4 h-4" /> View
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="flex items-center gap-2 text-blue-600 hover:text-blue-700"
+                            onClick={() => handleEdit(entry)}
+                          >
+                            <Edit className="w-4 h-4" /> Edit
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );

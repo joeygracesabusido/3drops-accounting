@@ -6,7 +6,7 @@ import { hasAdminAccess } from '@/lib/auth-helpers';
 
 const OVERTIME_CACHE_PREFIX = 'overtime:';
 
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   try {
     const cookieStore = await cookies();
     const userRole = cookieStore.get('userRole')?.value;

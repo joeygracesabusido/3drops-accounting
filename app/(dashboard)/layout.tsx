@@ -22,8 +22,8 @@ const navItems = [
     label: 'HRIS',
     icon: Users,
     subItems: [
-      { href: '/users', label: 'Users', icon: UserCheck },
-      { href: '/employees', label: 'Employees', icon: Users },
+      { href: '/users', label: 'Users', icon: UserCheck, adminOnly: true },
+      { href: '/employees', label: 'Employees', icon: Users, adminOnly: true },
       { href: '/schedules', label: 'Shift Schedule', icon: CalendarDays },
       { href: '/leave-credits', label: 'Leave Credits', icon: Award },
       { href: '/leaves', label: 'Leaves', icon: CalendarDays },
@@ -36,6 +36,7 @@ const navItems = [
     href: '/accounting',
     label: 'Accounting',
     icon: Wallet,
+    adminOnly: true,
     subItems: [
       { href: '/accounting', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/accounting/coa', label: 'Chart of Accounts', icon: FileText, adminOnly: true },
@@ -47,6 +48,7 @@ const navItems = [
       { href: '/accounting/expenses', label: 'Expenses', icon: DollarSign },
       { href: '/accounting/sales', label: 'Sales (AR)', icon: DollarSign },
       { href: '/accounting/purchases', label: 'Purchases (AP)', icon: Package },
+      { href: '/accounting/petty-cash', label: 'Petty Cash', icon: DollarSign },
       { href: '/accounting/reports', label: 'Financial Reports', icon: Printer, adminOnly: true },
     ],
   },
@@ -54,11 +56,13 @@ const navItems = [
     href: '/asset-inventory',
     label: 'Asset Inventory',
     icon: Package,
+    adminOnly: true,
     subItems: [
       { href: '/asset-inventory', label: 'Asset List', icon: Package },
       { href: '/asset-inventory/new', label: 'Add Asset', icon: FileText },
       { href: '/asset-inventory/categories', label: 'Categories', icon: Settings },
       { href: '/asset-inventory/transactions', label: 'Transactions', icon: Clock },
+      { href: '/asset-inventory/reports', label: 'PPE Reports', icon: FileText },
     ],
   },
   {

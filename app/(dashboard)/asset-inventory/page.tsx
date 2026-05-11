@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Eye, Pencil, FileDown } from 'lucide-react';
+import { Plus, Eye, Pencil, FileDown, Trash2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,7 +31,25 @@ export default function AssetListPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const itemsPerPage = 10;
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this asset?')) return;
+    
+    setDeleting(id);
+    try {
+      const res = await fetch(`/api/assets?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setAssets(assets.filter(a => a.id !== id));
+      } else {
+        alert('Failed to delete asset');
+      }
+    } catch {
+      alert('Error deleting asset');
+    }
+    setDeleting(null);
+  };
 
   useEffect(() => {
     fetch('/api/assets')
@@ -185,7 +203,7 @@ export default function AssetListPage() {
                         <TableCell className="text-center">{monthsElapsed} mos</TableCell>
                         <TableCell className="text-right">₱{asset.purchaseCost.toLocaleString()}</TableCell>
                         <TableCell className="text-right">₱{netBookValue.toLocaleString()}</TableCell>
-                        <TableCell className="text-right">
+<TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button variant="ghost" size="sm" onClick={() => router.push(`/asset-inventory/${asset.id}`)}>
                                 <Eye className="w-4 h-4 mr-2" />
@@ -195,8 +213,17 @@ export default function AssetListPage() {
                                 <Pencil className="w-4 h-4 mr-2" />
                                 Edit
                               </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => handleDelete(asset.id)}
+                                disabled={deleting === asset.id}
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
                             </div>
-                        </TableCell>
+                          </TableCell>
                       </TableRow>
                     );
                   })

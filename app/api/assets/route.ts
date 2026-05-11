@@ -36,8 +36,29 @@ export async function POST(request: Request) {
     // Automatically generate asset code if not provided
     let assetCode = data.assetCode;
     if (!assetCode) {
-      const count = await prisma.asset.count();
-      assetCode = `AST-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+      const currentYear = new Date().getFullYear();
+      const lastAsset = await prisma.asset.findFirst({
+        where: {
+          assetCode: {
+            startsWith: `AST-${currentYear}-`
+          }
+        },
+        orderBy: {
+          assetCode: 'desc'
+        }
+      });
+      
+      let nextSequence = 1;
+      if (lastAsset && lastAsset.assetCode) {
+        const parts = lastAsset.assetCode.split('-');
+        if (parts.length === 3) {
+          const lastSequence = parseInt(parts[2], 10);
+          if (!isNaN(lastSequence)) {
+            nextSequence = lastSequence + 1;
+          }
+        }
+      }
+      assetCode = `AST-${currentYear}-${String(nextSequence).padStart(4, '0')}`;
     }
 
     const asset = await prisma.asset.create({
@@ -79,5 +100,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Asset Code already exists' }, { status: 400 });
     }
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to create asset' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    
+    if (!id) {
+      return NextResponse.json({ error: 'Asset ID is required' }, { status: 400 });
+    }
+
+    await prisma.asset.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting asset:', error);
+    return NextResponse.json({ error: 'Failed to delete asset' }, { status: 500 });
   }
 }

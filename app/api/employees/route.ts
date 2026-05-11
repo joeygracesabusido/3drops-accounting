@@ -20,9 +20,6 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const position = searchParams.get('position');
 
-    // Get employee ID for user (with auto-linking)
-    const linkedEmployeeId = await getEmployeeIdForUser(userEmail, userRole || '');
-
     // Build where clause based on role
     const whereClause: Record<string, unknown> = {};
 
@@ -30,10 +27,19 @@ export async function GET(request: Request) {
       whereClause.position = { contains: position, mode: 'insensitive' as const };
     }
 
-    // If employee, only show their own record
-    if (linkedEmployeeId) {
-      whereClause.id = linkedEmployeeId;
+    // EMPLOYEE role: only show their own record
+    if (userRole === 'EMPLOYEE') {
+      // Try linked employee first (via userId)
+      const linkedEmployeeId = await getEmployeeIdForUser(userEmail, userRole);
+
+      if (linkedEmployeeId) {
+        whereClause.id = linkedEmployeeId;
+      } else {
+        // Fallback: match by email directly
+        whereClause.email = userEmail;
+      }
     }
+    // Admin / HR / Manager roles: return all employees (no filter)
 
     const employees = await prisma.employee.findMany({
       where: whereClause,

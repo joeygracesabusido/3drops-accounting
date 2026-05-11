@@ -4,6 +4,8 @@ import { startOfDay, endOfDay } from 'date-fns';
 import { cookies } from 'next/headers';
 import { buildRoleBasedWhereClause } from '@/lib/auth-helpers';
 
+export const dynamic = 'force-dynamic';
+
 const MANILA_TIMEZONE = 'Asia/Manila';
 
 function getManilaNow(): Date {

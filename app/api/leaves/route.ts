@@ -5,9 +5,11 @@ import { cache } from '@/lib/redis';
 import { getUserWithEmployee } from '@/lib/user-employee-link';
 import { hasAdminAccess } from '@/lib/auth-helpers';
 
+export const dynamic = 'force-dynamic';
+
 const LEAVES_CACHE_PREFIX = 'leaves:';
 
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   try {
     const cookieStore = await cookies();
     const userEmail = cookieStore.get('userEmail')?.value;

@@ -13,7 +13,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Database (Prisma)
 - `npm run db:push`: Push schema changes to the database
 - `npm run db:seed`: Seed the database with initial data
-- `npm run db:seed:coa`: Seed Chart of Accounts data
 - `npx prisma generate`: Regenerate Prisma client (also runs on `postinstall`)
 
 ### Maintenance Scripts
@@ -39,5 +38,4 @@ The project is a Human Resource Information System (HRIS) tailored for Philippin
 - **Auth**: Uses `next-auth` with a Prisma adapter.
 - **Database**: MongoDB is used as the primary store.
 - **Dynamic Routing**: Many API routes use `cookies()` or `request.url`, requiring `export const dynamic = 'force-dynamic'` to avoid static prerendering errors during build.
-- **Deployment**: Targeted for Cloudflare Pages using `@cloudflare/next-on-pages`. Use `npm run build:cloudflare` for production builds.
 - **Payroll Logic**: Specialized logic for Philippine holidays and payroll calculations is implemented in `app/api/payroll/route.ts` and related lib files.

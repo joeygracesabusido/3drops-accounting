@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Wallet } from 'lucide-react';
+import { ArrowLeft, Wallet, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface Account {
   name: string;
@@ -50,6 +51,41 @@ export default function AccountTransactionsPage() {
     fetchTransactions();
   }, [params.id]);
 
+  function exportToExcel() {
+    if (!transactions.length) return;
+    const data = transactions.map(tx => ({
+      Date: new Date(tx.date).toLocaleDateString('en-PH'),
+      Description: tx.description,
+      Debit: tx.debit,
+      Credit: tx.credit,
+      Balance: tx.balance,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ledger');
+    XLSX.writeFile(wb, `${account.code}-${account.name}.xlsx`.replace(/[^a-z0-9.-]/gi, '_'));
+  }
+
+  function exportToCSV() {
+    if (!transactions.length) return;
+    const data = transactions.map(tx => ({
+      Date: new Date(tx.date).toLocaleDateString('en-PH'),
+      Description: tx.description,
+      Debit: tx.debit,
+      Credit: tx.credit,
+      Balance: tx.balance,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const csv = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${account.code}-${account.name}.csv`.replace(/[^a-z0-9.-]/gi, '_');
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -85,6 +121,16 @@ export default function AccountTransactionsPage() {
               Code: <span className="font-mono">{account.code}</span> | Type: {account.type}
             </p>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" className="flex items-center gap-2" onClick={exportToExcel}>
+            <Download className="w-4 h-4" />
+            Export Excel
+          </Button>
+          <Button variant="outline" className="flex items-center gap-2" onClick={exportToCSV}>
+            <Download className="w-4 h-4" />
+            Export CSV
+          </Button>
         </div>
       </div>
 

@@ -70,10 +70,11 @@ export default function TimeLogsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const biometricFileInputRef = useRef<HTMLInputElement>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
-  const [distance, setDistance] = useState<number | null>(null);
-  const [officeLocation, setOfficeLocation] = useState<{ name: string; lat: number; lon: number; radius: number } | null>(null);
+  const [distances, setDistances] = useState<Map<string, number>>(new Map());
+  const [officeLocations, setOfficeLocations] = useState<Array<{ id: string; name: string; lat: number; lon: number; radius: number; isActive: boolean }>>([]);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [withinRange, setWithinRange] = useState(false);
+  const [closestLocation, setClosestLocation] = useState<{ name: string; distance: number } | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [timeLogToDelete, setTimeLogToDelete] = useState<TimeLog | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -83,6 +84,8 @@ export default function TimeLogsPage() {
   const xclsFileInputRef = useRef<HTMLInputElement>(null);
   const [showFaceModal, setShowFaceModal] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isEnrolling, setIsEnrolling] = useState(false);
+  const [faceEnrollStatus, setFaceEnrollStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
   useEffect(() => {
     const getCookies = () => {
@@ -117,7 +120,7 @@ export default function TimeLogsPage() {
 
 useEffect(() => {
     if (timeLogs.length > 0 && employeeId) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
       const todayEntry = timeLogs.find((log: TimeLog) => 
         log.date.startsWith(today) && log.employeeId === employeeId
       );
@@ -160,16 +163,15 @@ useEffect(() => {
         console.error('Failed to fetch office location:', res.statusText);
         return;
       }
-      const locations = await res.json() as Array<{ isActive: boolean; name: string; latitude: number; longitude: number; radius: number }>;
-      const activeLocation = locations.find((loc) => loc.isActive);
-      if (activeLocation) {
-        setOfficeLocation({
-          name: activeLocation.name,
-          lat: activeLocation.latitude,
-          lon: activeLocation.longitude,
-          radius: activeLocation.radius,
-        });
-      }
+      const locations = await res.json() as Array<{ id: string; isActive: boolean; name: string; latitude: number; longitude: number; radius: number }>;
+      setOfficeLocations(locations.map((loc) => ({
+        id: loc.id,
+        name: loc.name,
+        lat: loc.latitude,
+        lon: loc.longitude,
+        radius: loc.radius,
+        isActive: loc.isActive,
+      })));
     } catch (err) {
       console.error('Failed to fetch office location:', err);
     }
@@ -217,33 +219,74 @@ useEffect(() => {
   };
 
   useEffect(() => {
-    if (userLocation && officeLocation) {
-      const dist = calculateDistance(
-        userLocation.lat,
-        userLocation.lon,
-        officeLocation.lat,
-        officeLocation.lon
-      );
-      setDistance(dist);
-      setWithinRange(dist <= officeLocation.radius);
+    if (userLocation && officeLocations.length > 0) {
+      const newDistances = new Map<string, number>();
+      let minDistance = Infinity;
+      let closestName = '';
+
+      for (const loc of officeLocations) {
+        const dist = calculateDistance(
+          userLocation.lat,
+          userLocation.lon,
+          loc.lat,
+          loc.lon
+        );
+        newDistances.set(loc.id, dist);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestName = loc.name;
+        }
+      }
+
+      setDistances(newDistances);
+      const anyInRange = officeLocations.some(loc => {
+        const dist = newDistances.get(loc.id) || Infinity;
+        return dist <= loc.radius;
+      });
+      setWithinRange(anyInRange);
+      setClosestLocation(minDistance !== Infinity ? { name: closestName, distance: minDistance } : null);
     }
-  }, [userLocation, officeLocation]);
+  }, [userLocation, officeLocations]);
 
   const fetchEmployees = async (role: string, email: string) => {
     try {
       const res = await fetch('/api/employees', { credentials: 'include' });
       const data = await res.json() as Employee[];
       
+      // For EMPLOYEE role, filter to only show their own record by email match (case-insensitive)
       if (role === 'EMPLOYEE' && email) {
-        const myEmployee = data.find((emp) => emp.email === email || emp.userId);
+        const lowerEmail = email.toLowerCase();
+        const myEmployee = data.find((emp) => emp.email?.toLowerCase() === lowerEmail);
         if (myEmployee) {
           setEmployeeId(myEmployee.id);
           setEmployees([myEmployee]);
           return;
         }
+        // If no email match, try to find by userId
+        const myEmployeeByUserId = data.find((emp) => emp.userId === userId);
+        if (myEmployeeByUserId) {
+          setEmployeeId(myEmployeeByUserId.id);
+          setEmployees([myEmployeeByUserId]);
+          return;
+        }
+        // No match found - show empty and log error
+        console.error('[Time Logs] EMPLOYEE role but no matching employee found for email:', email, 'Available employees:', data.map(e => e.email));
+        setEmployees([]);
+        return;
       }
       
+      // For admin/manager/HR roles, show all employees and auto-select logged-in user's record
       setEmployees(data);
+      
+      if ((role === 'ADMIN' || role === 'MANAGER' || role === 'HR') && email) {
+        const lowerEmail = email.toLowerCase();
+        const myEmployee = data.find((emp) => emp.email?.toLowerCase() === lowerEmail);
+        if (myEmployee) {
+          setEmployeeId(myEmployee.id);
+          return;
+        }
+      }
+      
       if (data.length > 0) {
         setEmployeeId(data[0].id);
       }
@@ -258,14 +301,15 @@ useEffect(() => {
       return;
     }
 
-    if (!userLocation && officeLocation) {
+    if (!userLocation && officeLocations.length > 0) {
       alert('Please enable location services to clock in');
       getUserLocation();
       return;
     }
 
-    if (officeLocation && !withinRange) {
-      alert(`You must be within ${officeLocation.radius} meters of ${officeLocation.name} to clock in.\nCurrent distance: ${Math.round(distance || 0)} meters`);
+    if (officeLocations.length > 0 && !withinRange) {
+      const locNames = officeLocations.map(l => l.name).join(', ');
+      alert(`You must be within range of at least one office location to clock in.\nAvailable locations: ${locNames}\nCurrent distance to closest: ${Math.round(closestLocation?.distance || 0)}m`);
       return;
     }
 
@@ -304,14 +348,15 @@ useEffect(() => {
       return;
     }
 
-    if (!userLocation && officeLocation) {
+    if (!userLocation && officeLocations.length > 0) {
       alert('Please enable location services to clock out');
       getUserLocation();
       return;
     }
 
-    if (officeLocation && !withinRange) {
-      alert(`You must be within ${officeLocation.radius} meters of ${officeLocation.name} to clock out.\nCurrent distance: ${Math.round(distance || 0)} meters`);
+    if (officeLocations.length > 0 && !withinRange) {
+      const locNames = officeLocations.map(l => l.name).join(', ');
+      alert(`You must be within range of at least one office location to clock out.\nAvailable locations: ${locNames}\nCurrent distance to closest: ${Math.round(closestLocation?.distance || 0)}m`);
       return;
     }
 
@@ -401,8 +446,8 @@ useEffect(() => {
     }
   };
 
-  const canClockIn = (!todayLog || !todayLog.clockIn) && (!officeLocation || (withinRange && userLocation));
-  const canClockOut = (todayLog && todayLog.clockIn && !todayLog.clockOut) && (!officeLocation || (withinRange && userLocation));
+  const canClockIn = (!todayLog || !todayLog.clockIn);
+  const canClockOut = !!(todayLog && todayLog.clockIn && !todayLog.clockOut);
 
   const handleVerifyFace = async (isMatch: boolean, distance: number) => {
     if (isMatch) {
@@ -428,7 +473,7 @@ useEffect(() => {
     setIsVerifying(true);
     try {
       console.log('[Face Verification] Fetching descriptor for employeeId:', employeeId);
-      const res = await fetch(`/api/employees/${employeeId}/face-descriptor`);
+      const res = await fetch(`/api/employees/${employeeId}/face-descriptor`, { credentials: 'include' });
       const responseData = await res.json().catch(() => ({}));
       
       console.log('[Face Verification] Response status:', res.status, responseData);
@@ -456,6 +501,33 @@ useEffect(() => {
       const error = err instanceof Error ? err : new Error('Unknown error');
       alert(error.message);
       setIsVerifying(false);
+    }
+  };
+
+  const handleFaceEnroll = async (descriptor: Float32Array) => {
+    if (!employeeId) return;
+    setFaceEnrollStatus(null);
+
+    try {
+      const res = await fetch(`/api/employees/${employeeId}/face`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ faceDescriptor: Array.from(descriptor) }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setFaceEnrollStatus({ ok: false, msg: data.error || 'Failed to enroll face' });
+        return;
+      }
+
+      setFaceEnrollStatus({ ok: true, msg: '✓ Your face has been enrolled successfully!' });
+      setTimeout(() => { setShowFaceModal(false); setIsEnrolling(false); setFaceEnrollStatus(null); }, 2000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Something went wrong';
+      setFaceEnrollStatus({ ok: false, msg });
     }
   };
 
@@ -699,9 +771,18 @@ useEffect(() => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Time Logs</h1>
-          <p className="text-gray-500">Record your daily attendance</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Time Logs</h1>
+          <p className="text-gray-500 dark:text-gray-400">Record your daily attendance</p>
         </div>
+        {userRole === 'EMPLOYEE' && employeeId && (
+          <button
+            onClick={() => { setIsEnrolling(true); setFaceEnrollStatus(null); setShowFaceModal(true); }}
+            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <User className="w-4 h-4" />
+            Enroll My Face
+          </button>
+        )}
         {(userRole === 'ADMIN' || userRole === 'MANAGER') && (
           <div className="flex items-center gap-2">
             <Dialog open={biometricImportOpen} onOpenChange={setBiometricImportOpen}>
@@ -1068,14 +1149,14 @@ useEffect(() => {
           </Button>
         )}
       </div>
-      <div className="bg-white rounded-xl border p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-6">
         <div className="flex flex-col items-center justify-center space-y-4">
-          <div className="w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center">
-            <Clock className="w-12 h-12 text-blue-600" />
+          <div className="w-24 h-24 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+            <Clock className="w-12 h-12 text-blue-600 dark:text-blue-400" />
           </div>
           
           <div className="text-center">
-            <p className="text-lg font-medium">
+            <p className="text-lg font-medium dark:text-gray-200">
               {new Date().toLocaleDateString('en-US', { 
                 weekday: 'long', 
                 year: 'numeric', 
@@ -1084,7 +1165,7 @@ useEffect(() => {
                 timeZone: 'Asia/Manila'
               })}
             </p>
-            <p className="text-3xl font-bold text-gray-900">
+            <p className="text-3xl font-bold text-gray-900 dark:text-white">
               {new Date().toLocaleTimeString('en-US', { 
                 hour: '2-digit', 
                 minute: '2-digit',
@@ -1096,7 +1177,7 @@ useEffect(() => {
 
           {/* GPS Status */}
           <div className={`w-full max-w-md rounded-lg p-4 border-2 ${
-            !officeLocation 
+            !officeLocations.length 
               ? 'bg-blue-50 border-blue-200'
               : withinRange 
                 ? 'bg-green-50 border-green-200' 
@@ -1105,7 +1186,7 @@ useEffect(() => {
                   : 'bg-yellow-50 border-yellow-200'
           }`}>
             <div className="flex items-center gap-3">
-              {!officeLocation ? (
+              {!officeLocations.length ? (
                 <MapPin className="w-8 h-8 text-blue-600" />
               ) : withinRange ? (
                 <CheckCircle2 className="w-8 h-8 text-green-600" />
@@ -1114,27 +1195,40 @@ useEffect(() => {
               )}
               <div className="flex-1">
                 <p className="font-semibold text-gray-900">
-                  {!officeLocation 
+                  {!officeLocations.length 
                     ? 'GPS Not Required' 
                     : withinRange 
                       ? 'Within Clock-In Range' 
                       : 'Outside Clock-In Range'}
                 </p>
                 <p className="text-sm text-gray-600">
-                  {!officeLocation ? (
+                  {!officeLocations.length ? (
                     'No office location configured. Clock-in is allowed from anywhere.'
                   ) : gpsError ? (
                     <span className="text-red-600">{gpsError}</span>
                   ) : userLocation === null ? (
                     'Click refresh to get your location'
-                  ) : distance !== null ? (
-                    `Distance: ${Math.round(distance)}m from ${officeLocation.name} (Required: ${officeLocation.radius}m)`
+                  ) : officeLocations.length > 0 ? (
+                    <div className="space-y-1">
+                      {officeLocations.map((loc) => {
+                        const dist = distances.get(loc.id);
+                        const inRange = dist !== undefined && dist <= loc.radius;
+                        return (
+                          <div key={loc.id} className="flex items-center gap-1">
+                            <span className={inRange ? 'text-green-600' : 'text-red-600'}>
+                              {inRange ? '✓' : '✗'}
+                            </span>
+                            <span>{loc.name}: {Math.round(dist || 0)}m / {loc.radius}m</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
                     'Getting location...'
                   )}
                 </p>
               </div>
-              {officeLocation && (
+              {officeLocations.length > 0 && (
                 <button 
                   onClick={getUserLocation}
                   className="p-2 hover:bg-white/50 rounded-lg transition-colors"
@@ -1148,15 +1242,15 @@ useEffect(() => {
 
           {/* Employee Selector */}
           <div className="w-full max-w-md">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Select Employee</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Select Employee</label>
             <select
               value={employeeId}
               onChange={(e) => setEmployeeId(e.target.value)}
-              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-900 dark:border-gray-700 dark:text-white"
             >
               {employees.map((emp) => (
                 <option key={emp.id} value={emp.id}>
-                  {emp.fullName} (#{emp.employeeNumber})
+                  {emp.fullName} ({emp.employeeId || `#${emp.employeeNumber}`})
                 </option>
               ))}
             </select>
@@ -1165,14 +1259,25 @@ useEffect(() => {
           <div className="flex gap-4 w-full max-w-md">
               <button
                 onClick={() => {
+                  if (officeLocations.length > 0) {
+                    if (!userLocation) {
+                      alert('Please enable location services to clock in. ' + (gpsError || ''));
+                      getUserLocation();
+                      return;
+                    }
+                    if (!withinRange) {
+                      const locNames = officeLocations.map(l => l.name).join(', ');
+                      alert(`You must be within range of at least one office location to clock in.\nAvailable locations: ${locNames}\nCurrent distance to closest: ${Math.round(closestLocation?.distance || 0)}m`);
+                      return;
+                    }
+                  }
                   if (canClockIn) initiateVerification();
-                  else handleClockIn();
                 }}
                 disabled={!canClockIn || clockingIn}
                 className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-medium transition-colors ${
                   canClockIn
                     ? 'bg-green-600 text-white hover:bg-green-700'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    : 'bg-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-800 dark:text-gray-500'
                 }`}
               >
                 <Play className="w-5 h-5" />
@@ -1181,14 +1286,25 @@ useEffect(() => {
 
               <button
                 onClick={() => {
+                  if (officeLocations.length > 0) {
+                    if (!userLocation) {
+                      alert('Please enable location services to clock out. ' + (gpsError || ''));
+                      getUserLocation();
+                      return;
+                    }
+                    if (!withinRange) {
+                      const locNames = officeLocations.map(l => l.name).join(', ');
+                      alert(`You must be within range of at least one office location to clock out.\nAvailable locations: ${locNames}\nCurrent distance to closest: ${Math.round(closestLocation?.distance || 0)}m`);
+                      return;
+                    }
+                  }
                   if (canClockOut) initiateVerification();
-                  else handleClockOut();
                 }}
                 disabled={!canClockOut || clockingIn}
                 className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg font-medium transition-colors ${
                   canClockOut
                     ? 'bg-red-600 text-white hover:bg-red-700'
-                    : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    : 'bg-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-800 dark:text-gray-500'
                 }`}
               >
                 <Square className="w-5 h-5" />
@@ -1197,20 +1313,20 @@ useEffect(() => {
             </div>
 
           {todayLog && employeeId === todayLog.employeeId && (
-            <div className="w-full max-w-md bg-gray-50 rounded-lg p-4">
-              <p className="text-sm font-medium text-gray-700 mb-2">Today&apos;s Status</p>
+            <div className="w-full max-w-md bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border dark:border-gray-800">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Today&apos;s Status</p>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-gray-500">Clock In</p>
-                  <p className="font-medium">{formatTime(todayLog.clockIn)}</p>
+                  <p className="text-gray-500 dark:text-gray-400">Clock In</p>
+                  <p className="font-medium dark:text-white">{formatTime(todayLog.clockIn)}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Clock Out</p>
-                  <p className="font-medium">{formatTime(todayLog.clockOut)}</p>
+                  <p className="text-gray-500 dark:text-gray-400">Clock Out</p>
+                  <p className="font-medium dark:text-white">{formatTime(todayLog.clockOut)}</p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-gray-500">Hours Worked</p>
-                  <p className="font-medium">{todayLog.workHours.toFixed(2)} hours</p>
+                  <p className="text-gray-500 dark:text-gray-400">Hours Worked</p>
+                  <p className="font-medium dark:text-white">{todayLog.workHours.toFixed(2)} hours</p>
                 </div>
               </div>
             </div>
@@ -1220,9 +1336,9 @@ useEffect(() => {
 
        {/* Time Logs Table for Admin/Manager */}
        {(userRole === 'ADMIN' || userRole === 'MANAGER') && (
-         <div className="bg-white rounded-xl border overflow-hidden">
-           <div className="p-6 border-b flex flex-col md:flex-row md:items-center justify-between gap-4">
-             <h2 className="text-lg font-semibold">All Time Logs</h2>
+         <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden">
+           <div className="p-6 border-b dark:border-gray-700 flex flex-col md:flex-row md:items-center justify-between gap-4">
+             <h2 className="text-lg font-semibold dark:text-white">All Time Logs</h2>
              <div className="relative w-full md:w-72">
                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                  <Search className="w-4 h-4" />
@@ -1246,19 +1362,19 @@ useEffect(() => {
            ) : (
              <div className="overflow-x-auto">
                <table className="w-full">
-                 <thead className="bg-gray-50">
+                 <thead className="bg-gray-50 dark:bg-gray-900/50">
                    <tr>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schedule</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clock In</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clock Out</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hours</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Remarks</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Employee</th>
+                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Schedule</th>
+                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Clock In</th>
+                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Clock Out</th>
+                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Hours</th>
+                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Remarks</th>
+                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
                    </tr>
                  </thead>
-                 <tbody className="divide-y divide-gray-200">
+                 <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
                    {timeLogs
                      .filter(log => 
                        log.employee?.fullName?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -1266,18 +1382,18 @@ useEffect(() => {
                      .map((log) => {
                        const remarks = getLatenessRemarks(log);
                        return (
-                         <tr key={log.id} className="hover:bg-gray-50">
+                         <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-900 dark:text-gray-200">
                            <td className="px-6 py-4 text-sm whitespace-nowrap">{formatDate(log.date)}</td>
                            <td className="px-6 py-4">
                              <div className="flex items-center gap-2">
-                               <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                 <span className="text-blue-600 text-xs font-medium">
+                               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                                 <span className="text-blue-600 dark:text-blue-400 text-xs font-medium">
                                    {log.employee?.fullName?.[0] || 'E'}
                                  </span>
                                </div>
                                <div>
-                                 <p className="text-sm font-medium">{log.employee?.fullName || 'Unknown'}</p>
-                                 <p className="text-xs text-gray-500">{log.employee?.employeeId}</p>
+                                 <p className="text-sm font-medium dark:text-gray-200">{log.employee?.fullName || 'Unknown'}</p>
+                                 <p className="text-xs text-gray-500 dark:text-gray-400">{log.employee?.employeeId}</p>
                                </div>
                              </div>
                            </td>
@@ -1319,35 +1435,37 @@ useEffect(() => {
          </div>
        )}
 
-       {/* Time Logs Table for Employee (only their own data) */}
-       {userRole === 'EMPLOYEE' && (
-         <div className="bg-white rounded-xl border overflow-hidden">
-           <div className="p-6 border-b">
-             <h2 className="text-lg font-semibold">My Time Logs</h2>
-           </div>
-           
-           {loading ? (
-             <div className="p-8 text-center text-gray-500">Loading...</div>
-           ) : timeLogs.length === 0 ? (
-             <div className="p-8 text-center text-gray-500">No time logs found</div>
-           ) : (
-             <div className="overflow-x-auto">
-               <table className="w-full">
-                 <thead className="bg-gray-50">
-                   <tr>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Schedule</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clock In</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Clock Out</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Hours</th>
-                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Remarks</th>
-                   </tr>
-                 </thead>
-                 <tbody className="divide-y divide-gray-200">
-                   {timeLogs.map((log) => {
+{/* Time Logs Table for Employee (only their own data) */}
+        {userRole === 'EMPLOYEE' && (
+          <div className="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 overflow-hidden">
+            <div className="p-6 border-b dark:border-gray-700">
+              <h2 className="text-lg font-semibold dark:text-white">My Time Logs</h2>
+            </div>
+            
+            {loading ? (
+              <div className="p-8 text-center text-gray-500">Loading...</div>
+            ) : timeLogs.filter(log => employeeId && log.employeeId === employeeId).length === 0 ? (
+              <div className="p-8 text-center text-gray-500">No time logs found</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 dark:bg-gray-900/50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Schedule</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Clock In</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Clock Out</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Hours</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                    {timeLogs
+                      .filter(log => employeeId && log.employeeId === employeeId)
+                      .map((log) => {
                      const remarks = getLatenessRemarks(log);
                      return (
-                       <tr key={log.id} className="hover:bg-gray-50">
+                       <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-900 dark:text-gray-200">
                          <td className="px-6 py-4 text-sm whitespace-nowrap">{formatDate(log.date)}</td>
                          <td className="px-6 py-4 text-sm whitespace-nowrap">
                            {log.shift ? (
@@ -1412,33 +1530,52 @@ useEffect(() => {
         </DialogContent>
        </Dialog>
 
-       {/* Face Verification Modal */}
-       {showFaceModal && (
-         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-           <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
-             <div className="p-6 border-b flex justify-between items-center">
-               <div className="flex items-center gap-2">
-                 <div className="p-2 bg-blue-50 rounded-lg text-blue-600"><User className="w-5 h-5" /></div>
-                 <div>
-                   <h2 className="text-xl font-bold text-gray-900">Face Verification</h2>
-                   <p className="text-xs text-gray-500">Please verify your identity to continue</p>
-                 </div>
-               </div>
-               <button 
-                 onClick={() => { setShowFaceModal(false); setIsVerifying(false); }} 
-                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-               >
-                 <X className="w-5 h-5" />
-               </button>
-             </div>
-             <div className="p-6 space-y-4">
-               <FaceCapture 
-                 mode="verify" 
-                 storedDescriptor={storedDescriptor} 
-                 onVerify={handleVerifyFace} 
-               />
-             </div>
-           </div>
+{/* Face Verification/Enrollment Modal */}
+        {showFaceModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+              <div className="p-6 border-b flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className={`p-2 rounded-lg ${isEnrolling ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
+                    <User className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">
+                      {isEnrolling ? 'Face Enrollment' : 'Face Verification'}
+                    </h2>
+                    <p className="text-xs text-gray-500">
+                      {isEnrolling ? 'Capture your face for attendance verification' : 'Please verify your identity to continue'}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => { setShowFaceModal(false); setIsVerifying(false); setIsEnrolling(false); setFaceEnrollStatus(null); }} 
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                {faceEnrollStatus && (
+                  <div className={`p-3 rounded-lg border text-sm font-medium ${
+                    faceEnrollStatus.ok
+                      ? 'bg-green-50 border-green-200 text-green-700'
+                      : 'bg-red-50 border-red-200 text-red-700'
+                  }`}>
+                    {faceEnrollStatus.msg}
+                  </div>
+                )}
+                {isEnrolling ? (
+                  <FaceCapture mode="enroll" onCapture={handleFaceEnroll} />
+                ) : (
+                  <FaceCapture 
+                    mode="verify" 
+                    storedDescriptor={storedDescriptor} 
+                    onVerify={handleVerifyFace} 
+                  />
+                )}
+              </div>
+            </div>
          </div>
        )}
      </div>

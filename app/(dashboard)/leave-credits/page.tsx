@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, PlusCircle, MinusCircle, Settings, Calendar, AlertCircle, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns/format';
 import type { LeaveCredit, LeaveCreditTransaction } from '@/types';
@@ -35,6 +35,33 @@ export default function LeaveCreditsPage() {
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
 
+  const fetchBalance = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/leave-credits/balance?year=${selectedYear}`, { credentials: 'include' });
+      const data = await res.json();
+      if (data && !data.error) {
+        setBalance(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch balance:', err);
+    }
+  }, [selectedYear]);
+
+  const fetchCredits = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/leave-credits?year=${selectedYear}`, { credentials: 'include' });
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setCredits(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch credits:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedYear]);
+
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const getCookies = () => {
@@ -58,34 +85,7 @@ export default function LeaveCreditsPage() {
     setUserRole(role);
     fetchBalance();
     fetchCredits();
-  }, []);
-
-  const fetchBalance = async () => {
-    try {
-      const res = await fetch(`/api/leave-credits/balance?year=${selectedYear}`, { credentials: 'include' });
-      const data = await res.json();
-      if (data && !data.error) {
-        setBalance(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch balance:', err);
-    }
-  };
-
-  const fetchCredits = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/leave-credits?year=${selectedYear}`, { credentials: 'include' });
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setCredits(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch credits:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [fetchBalance, fetchCredits]);
 
   const handleRefresh = async () => {
     setRefreshing(true);

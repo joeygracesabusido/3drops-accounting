@@ -49,6 +49,8 @@ export default function EmployeesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState('');
   const [userRole, setUserRole] = useState<string>('');
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [faceEnrollStatus, setFaceEnrollStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   
   const [formData, setFormData] = useState({
@@ -81,15 +83,17 @@ export default function EmployeesPage() {
         acc[key] = value;
         return acc;
       }, {} as Record<string, string>);
-      return { role: cookies.userRole || '', loggedIn: cookies.isLoggedIn === 'true' };
+      return { role: cookies.userRole || '', userId: cookies.userId || '', userEmail: cookies.userEmail || '', loggedIn: cookies.isLoggedIn === 'true' };
     };
     
-    const { role, loggedIn } = getCookies();
+    const { role, userId, userEmail, loggedIn } = getCookies();
     if (!loggedIn) {
       window.location.href = '/login';
       return;
     }
     setUserRole(role);
+    setCurrentUserId(userId);
+    setCurrentUserEmail(userEmail);
     fetchEmployees();
   }, []);
 
@@ -163,6 +167,12 @@ export default function EmployeesPage() {
   };
 
   const handleEdit = (employee: Employee) => {
+    // EMPLOYEE role can only enroll face, not edit
+    if (userRole === 'EMPLOYEE') {
+      setSelectedEmployee(employee);
+      setShowFaceModal(true);
+      return;
+    }
     setSelectedEmployee(employee);
     setFormData({
       employeeId: employee.employeeId,
@@ -230,10 +240,10 @@ export default function EmployeesPage() {
     }
   };
 
-  const filteredEmployees = employees.filter(emp =>
-    emp.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    emp.employeeId.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredEmployees = employees.filter(emp => {
+    return emp.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.employeeId.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
   const isAdmin = userRole === 'ADMIN';
 
@@ -285,6 +295,11 @@ export default function EmployeesPage() {
                       <button onClick={() => handleEdit(employee)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Pencil className="w-4 h-4" /></button>
                       <button onClick={() => { setSelectedEmployee(employee); setShowDeleteModal(true); }} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
                     </div>
+                  )}
+                  {userRole === 'EMPLOYEE' && (
+                    <button onClick={() => { setSelectedEmployee(employee); setShowFaceModal(true); }} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Enroll Face">
+                      <User className="w-4 h-4" />
+                    </button>
                   )}
                 </div>
 
@@ -350,6 +365,7 @@ export default function EmployeesPage() {
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Department</th>
                   <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
                   {isAdmin && <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>}
+                  {userRole === 'EMPLOYEE' && <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Face</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -410,6 +426,13 @@ export default function EmployeesPage() {
                         </div>
                       </td>
                     )}
+                    {userRole === 'EMPLOYEE' && (
+                      <td className="px-6 py-4">
+                        <button onClick={() => { setSelectedEmployee(employee); setShowFaceModal(true); }} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Enroll Face">
+                          <User className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -431,36 +454,37 @@ export default function EmployeesPage() {
 
             <form onSubmit={handleSubmit} className="p-8 space-y-8">
               {error && <div className="bg-red-900/20 text-red-400 p-4 rounded-xl text-sm font-medium border border-red-900/50">{error}</div>}
+              {userRole === 'EMPLOYEE' && <div className="bg-green-900/20 text-green-400 p-4 rounded-xl text-sm font-medium border border-green-900/50">View mode - Only Face Enrollment is enabled</div>}
 
               <section>
                 <h3 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-4">Personal & Role Info</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-1.5">
                     <Label className="text-xs font-bold uppercase text-slate-400">Full Name *</Label>
-                    <Input name="fullName" value={formData.fullName} onChange={handleChange} required placeholder="Juan R. Dela Cruz" className="h-11 bg-slate-900 border-slate-700 text-white placeholder:text-slate-600" />
+                    <Input name="fullName" value={formData.fullName} onChange={handleChange} required disabled={userRole === 'EMPLOYEE'} placeholder="Juan R. Dela Cruz" className="h-11 bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 disabled:opacity-50" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs font-bold uppercase text-slate-400">Employee ID *</Label>
-                    <Input name="employeeId" value={formData.employeeId} onChange={handleChange} required placeholder="EMP-0001" className="h-11 bg-slate-900 border-slate-700 text-white placeholder:text-slate-600" />
+                    <Input name="employeeId" value={formData.employeeId} onChange={handleChange} required disabled={userRole === 'EMPLOYEE'} placeholder="EMP-0001" className="h-11 bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 disabled:opacity-50" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs font-bold uppercase text-slate-400">Work Email *</Label>
-                    <Input type="email" name="email" value={formData.email} onChange={handleChange} required placeholder="juan@company.com" className="h-11 bg-slate-900 border-slate-700 text-white placeholder:text-slate-600" />
+                    <Input type="email" name="email" value={formData.email} onChange={handleChange} required disabled={userRole === 'EMPLOYEE'} placeholder="juan@company.com" className="h-11 bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 disabled:opacity-50" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs font-bold uppercase text-slate-400">Position *</Label>
-                    <Input name="position" value={formData.position} onChange={handleChange} required placeholder="Senior Developer" className="h-11 bg-slate-900 border-slate-700 text-white placeholder:text-slate-600" />
+                    <Input name="position" value={formData.position} onChange={handleChange} required disabled={userRole === 'EMPLOYEE'} placeholder="Senior Developer" className="h-11 bg-slate-900 border-slate-700 text-white placeholder:text-slate-600 disabled:opacity-50" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs font-bold uppercase text-slate-400">Department *</Label>
-                    <select name="department" value={formData.department} onChange={handleChange} required className="w-full h-11 px-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-slate-900 border-slate-700 text-white">
+                    <select name="department" value={formData.department} onChange={handleChange} required disabled={userRole === 'EMPLOYEE'} className="w-full h-11 px-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-slate-900 border-slate-700 text-white disabled:opacity-50">
                       <option value="">Select Department</option>
                       {departments.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs font-bold uppercase text-slate-400">Employment Status</Label>
-                    <select name="employeeStatus" value={formData.employeeStatus} onChange={handleChange} className="w-full h-11 px-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-slate-900 border-slate-700 text-white">
+                    <select name="employeeStatus" value={formData.employeeStatus} onChange={handleChange} disabled={userRole === 'EMPLOYEE'} className="w-full h-11 px-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-slate-900 border-slate-700 text-white disabled:opacity-50">
                       <option value="PROBATIONARY">Probationary</option>
                       <option value="REGULAR">Regular</option>
                       <option value="RESIGNED">Resigned</option>
@@ -579,7 +603,12 @@ export default function EmployeesPage() {
 
               <div className="flex gap-4 pt-4 sticky bottom-0 bg-slate-950 py-4 border-t border-slate-800">
                 <Button type="button" variant="outline" onClick={() => setShowModal(false)} className="flex-1 h-12 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white">Cancel</Button>
-                <Button type="submit" className="flex-1 h-12 bg-blue-600 hover:bg-blue-700 text-white">{selectedEmployee ? 'Update Profile' : 'Create Employee'}</Button>
+                {userRole !== 'EMPLOYEE' && (
+                  <Button type="submit" className="flex-1 h-12 bg-blue-600 hover:bg-blue-700 text-white">{selectedEmployee ? 'Update Profile' : 'Create Employee'}</Button>
+                )}
+                {userRole === 'EMPLOYEE' && (
+                  <Button type="button" onClick={() => { setShowModal(false); setShowFaceModal(true); }} className="flex-1 h-12 bg-green-600 hover:bg-green-700 text-white">Enroll Face</Button>
+                )}
               </div>
             </form>
           </div>

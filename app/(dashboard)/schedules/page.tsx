@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   format, 
   startOfWeek, 
@@ -91,21 +91,22 @@ export default function ShiftSchedulePage() {
 
   // Calculate the 7 days to display
   const startDate = startOfWeek(currentDate, { weekStartsOn: 1 }); // Start on Monday
+  const startDateStr = format(startDate, 'yyyy-MM-dd'); // stable string key for deps
   const weekDays = eachDayOfInterval({
     start: startDate,
     end: addDays(startDate, 6),
   });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      const startStr = format(startDate, 'yyyy-MM-dd');
-      const endStr = format(addDays(startDate, 6), 'yyyy-MM-dd');
-      
+
+      const startStr = startDateStr;
+      const endStr = format(addDays(new Date(startDateStr), 6), 'yyyy-MM-dd');
+
       console.log(`[Fetch] Range: ${startStr} to ${endStr}`);
-      
+
       const [shiftsRes, schedulesRes] = await Promise.all([
         fetch('/api/shifts', { credentials: 'include' }),
         fetch(`/api/schedules?startDate=${startStr}&endDate=${endStr}`, { credentials: 'include' })
@@ -125,7 +126,7 @@ export default function ShiftSchedulePage() {
       setShifts(Array.isArray(shiftsData) ? shiftsData : []);
       setEmployees(Array.isArray(scheduleDataJson.employees) ? scheduleDataJson.employees : []);
       setSchedules(Array.isArray(scheduleDataJson.schedules) ? scheduleDataJson.schedules : []);
-      
+
       console.log(`[Fetch] Loaded ${scheduleDataJson.employees?.length || 0} employees`);
     } catch (err: unknown) {
       console.error('[Fetch] Error:', err);
@@ -133,11 +134,11 @@ export default function ShiftSchedulePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [startDateStr]);
 
   useEffect(() => {
     fetchData();
-  }, [currentDate]);
+  }, [fetchData]);
 
   const handleCreateShift = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -316,11 +317,11 @@ export default function ShiftSchedulePage() {
             <DropdownMenuTrigger asChild>
               <Button 
                 variant="outline" 
-                className="gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
-                disabled={loading || employees.length === 0}
+                className="gap-2 border-gray-200 text-gray-400 cursor-not-allowed opacity-50"
+                disabled={true}
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
-                Bulk Assign
+                Bulk Assign (Disabled)
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">

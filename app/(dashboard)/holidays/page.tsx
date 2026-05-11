@@ -1,7 +1,7 @@
 'use client'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Calendar, Plus, Trash2, Edit2, Check, X, AlertCircle, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,13 +47,7 @@ export default function HolidaysPage() {
     setUserRole(cookies.userRole || '')
   }, [])
 
-  useEffect(() => {
-    if (mounted) {
-      fetchHolidays()
-    }
-  }, [mounted, filterYear, filterType])
-
-  const fetchHolidays = async () => {
+  const fetchHolidays = useCallback(async () => {
     try {
       const params = new URLSearchParams()
       if (filterYear !== 'all') params.append('year', filterYear)
@@ -69,7 +63,13 @@ export default function HolidaysPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [filterYear, filterType]);
+
+  useEffect(() => {
+    if (mounted) {
+      fetchHolidays()
+    }
+  }, [mounted, fetchHolidays]);
 
   const handleCreateHoliday = async () => {
     if (!newHoliday.name || !newHoliday.date) {

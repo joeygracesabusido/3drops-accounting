@@ -29,12 +29,13 @@ export async function GET() {
       url: url.replace(/\/\/.*:.*@/, '//***:***@'),
       users: users.map(u => ({ username: u.username, role: u.role }))
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error('DEBUG error:', e);
+    const err = e as { message?: string; code?: string; meta?: unknown };
     return NextResponse.json({ 
-      error: e.message,
-      code: e.code,
-      meta: e.meta
+      error: err.message,
+      code: err.code,
+      meta: err.meta
     }, { status: 500 });
   }
 }

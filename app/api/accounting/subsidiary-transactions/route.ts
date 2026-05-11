@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 // GET transactions for a specific subsidiary ledger
 export async function GET(request: Request) {
   try {
@@ -96,11 +98,7 @@ export async function POST(request: Request) {
       data: {
         debitTotal: { increment: debitAmount },
         creditTotal: { increment: creditAmount },
-        balance: {
-          increment: ledger.account.normalBalance === 'DEBIT' 
-            ? (debitAmount - creditAmount) 
-            : (creditAmount - debitAmount),
-        },
+        balance: { increment: debitAmount - creditAmount },
       },
     });
 
@@ -111,18 +109,14 @@ export async function POST(request: Request) {
   }
 }
 
-// GET all reconciliations for all control accounts
-export async function GET() {
+// DELETE to reconcile
+export async function DELETE(_: Request) {
   try {
-    // Get all control accounts with their ledgers and transactions
+    // Get all control accounts
     const controlAccounts = await (prisma as any).account.findMany({
       where: { hasSubsidiaryLedger: true },
       include: {
-        subsidiaryLedgers: {
-          include: {
-            transactions: true,
-          },
-        },
+        subsidiaryLedgers: true,
         lines: true,
       },
     });
@@ -130,21 +124,20 @@ export async function GET() {
     const reconciliations = [];
 
     for (const account of controlAccounts) {
-      // Calculate SL total dynamically from transactions
-      // For credit-normal accounts (liabilities, revenue), balance = credit - debit
-      // For debit-normal accounts (assets, expenses), balance = debit - credit
-      const isCreditNormal = account.normalBalance === 'CREDIT';
-      let slTotal = 0;
-      for (const ledger of account.subsidiaryLedgers) {
-        const debitTotal = ledger.transactions.reduce((sum: number, t: any) => sum + (t.debit || 0), 0);
-        const creditTotal = ledger.transactions.reduce((sum: number, t: any) => sum + (t.credit || 0), 0);
-        const balance = isCreditNormal ? creditTotal - debitTotal : debitTotal - creditTotal;
-        slTotal += balance;
-      }
-      
+      // Calculate SL total from transactions (not stored balance)
+      const ledgers = await (prisma as any).subsidiaryLedger.findMany({
+        where: { accountId: account.id },
+        include: { transactions: true },
+      });
+      const slTotal = ledgers.reduce((sum: number, l: any) => {
+        const debitTotal = l.transactions.reduce((s: number, t: any) => s + t.debit, 0);
+        const creditTotal = l.transactions.reduce((s: number, t: any) => s + t.credit, 0);
+        return sum + debitTotal - creditTotal;
+      }, 0);
+
       // Calculate GL total
-      const glDebit = account.lines.reduce((sum: number, l: any) => sum + (l.debit || 0), 0);
-      const glCredit = account.lines.reduce((sum: number, l: any) => sum + (l.credit || 0), 0);
+      const glDebit = account.lines.reduce((sum: number, l: any) => sum + l.debit, 0);
+      const glCredit = account.lines.reduce((sum: number, l: any) => sum + l.credit, 0);
       const glTotal = account.normalBalance === 'DEBIT' ? glDebit - glCredit : glCredit - glDebit;
 
       reconciliations.push({

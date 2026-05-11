@@ -106,6 +106,9 @@ model Employee {
   shiftSchedules ShiftSchedule[]
   assets        Asset[]
 
+  @@index([department])
+  @@index([isActive])
+  @@index([userId])
   @@map("employees")
   }
 
@@ -156,12 +159,15 @@ model Employee {
   deductionAmount  Float            // Amount to deduct per payroll
 
   status           String           @default("ACTIVE") // ACTIVE, FULLY_PAID
+  date             DateTime?        @default(now())
+  reference        String?
 
   payments         AdvancePayment[]
 
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
+  @@index([employeeId, status])
   @@map("advances")
   }
 
@@ -180,6 +186,9 @@ model Employee {
 
   notes       String?
 
+  @@index([advanceId])
+  @@index([payrollId])
+  @@index([paymentDate])
   @@map("advancepayments")
   }
 
@@ -229,6 +238,8 @@ model LeaveRequest {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+  @@index([employeeId, status])
+  @@index([startDate, endDate])
   @@map("leaverequests")
 }
 
@@ -252,6 +263,8 @@ model OvertimeRequest {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+  @@index([employeeId, status])
+  @@index([date])
   @@map("overtimerequests")
 }
 
@@ -475,27 +488,28 @@ model SubsidiaryLedger {
   id              String          @id @default(auto()) @map("_id") @db.ObjectId
   accountId       String          @db.ObjectId
   account         Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  
+
   // The subsidiary entity (customer, supplier, inventory item, etc.)
   entityCode      String          // e.g., CUST-001, SUP-001, INV-001
   entityName      String          // e.g., "ABC Corporation", "XYZ Supplier"
   entityType      SubsidiaryType  // Links to account.subsidiaryType
-  
+
   // Running balance
   debitTotal      Float           @default(0)
   creditTotal     Float           @default(0)
   balance         Float           @default(0) // Calculated: debitTotal - creditTotal
-  
+
   // Metadata
   description     String?
   isActive        Boolean         @default(true)
-  
+
   // Transactions link to this subsidiary
   transactions    SubsidiaryTransaction[]
-  
+  journalLines    JournalLine[]
+
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
-  
+
   @@unique([accountId, entityCode])
   @@index([accountId])
   @@index([entityType])
@@ -507,19 +521,20 @@ model SubsidiaryTransaction {
   id              String          @id @default(auto()) @map("_id") @db.ObjectId
   ledgerId        String          @db.ObjectId
   ledger          SubsidiaryLedger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
-  
+
   date            DateTime        @default(now())
   referenceNo     String          // e.g., INV-2024-001, PO-2024-001
   description     String
-  
+
   debit           Float           @default(0)
   credit          Float           @default(0)
-  
+
   // Link to journal entry for reconciliation
   journalEntryId  String?         @db.ObjectId
-  
+  journalLineId   String?         @db.ObjectId
+
   createdAt       DateTime        @default(now())
-  
+
   @@index([ledgerId])
   @@index([date])
   @@map("subsidiary_transactions")
@@ -534,10 +549,16 @@ model JournalEntry {
 
   lines       JournalLine[]
   payments    Payment[]
+  purchaseBills PurchaseBill[]
+  salesInvoices SalesInvoice[]
+  expenses      Expense[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([date])
+  @@index([reference])
+  @@index([status])
   @@map("journal_entries")
 }
 
@@ -549,6 +570,10 @@ model JournalLine {
   accountId      String   @db.ObjectId
   account        Account  @relation(fields: [accountId], references: [id])
 
+  // Optional link to subsidiary ledger for AR/AP accounts
+  subsidiaryLedgerId String? @db.ObjectId
+  subsidiaryLedger   SubsidiaryLedger? @relation(fields: [subsidiaryLedgerId], references: [id])
+
   debit          Float    @default(0)
   credit         Float    @default(0)
 
@@ -556,6 +581,9 @@ model JournalLine {
 
   createdAt      DateTime @default(now())
 
+  @@index([entryId])
+  @@index([accountId])
+  @@index([subsidiaryLedgerId])
   @@map("journal_lines")
 }
 
@@ -579,10 +607,13 @@ model Expense {
 
   // Double-Entry Link
   journalEntryId  String?       @db.ObjectId
+  journalEntry    JournalEntry? @relation(fields: [journalEntryId], references: [id])
 
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  @@index([date])
+  @@index([status])
   @@map("expenses")
 }
 
@@ -597,6 +628,8 @@ model ExpenseItem {
   // Link to specific COA account for this item
   accountId   String   @db.ObjectId
 
+  @@index([expenseId])
+  @@index([accountId])
   @@map("expense_items")
 }
 
@@ -623,10 +656,13 @@ model SalesInvoice {
   amountPaid     Float    @default(0)
 
   journalEntryId String?  @db.ObjectId
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([customerId, status])
+  @@index([date])
   @@map("sales_invoices")
 }
 
@@ -640,6 +676,7 @@ model SalesInvoiceItem {
   unitPrice      Float
   total          Float
 
+  @@index([invoiceId])
   @@map("sales_invoice_items")
 }
 
@@ -666,11 +703,14 @@ model PurchaseBill {
   amountPaid     Float    @default(0)
 
   journalEntryId String?  @db.ObjectId
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
   payments       Payment[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@index([supplierId, status])
+  @@index([date])
   @@map("purchase_bills")
 }
 
@@ -684,6 +724,7 @@ model PurchaseBillItem {
   unitPrice      Float
   total          Float
 
+  @@index([billId])
   @@map("purchase_bill_items")
 }
 
@@ -701,9 +742,10 @@ model Payment {
   journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
   createdAt      DateTime     @default(now()) @db.Date
 
+  @@index([billId])
+  @@index([paymentDate])
   @@map("payments")
 }
-
 enum AssetStatus {
   ACTIVE
   INACTIVE
@@ -768,6 +810,9 @@ model Asset {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
   
+  @@index([categoryId])
+  @@index([status])
+  @@index([assignedToId])
   @@map("assets")
 }
 
@@ -789,5 +834,105 @@ model AssetTransaction {
   
   createdAt   DateTime             @default(now())
   
+  @@index([assetId])
+  @@index([date])
   @@map("assettransactions")
+}
+
+model PettyCash {
+  id               String                  @id @default(auto()) @map("_id") @db.ObjectId
+  name             String
+  fundAmount       Float                  @default(0)
+  currentBalance  Float                  @default(0)
+  
+  cashAccountId    String                 @db.ObjectId
+  expenseAccountId String?                @db.ObjectId
+  
+  custodianId     String?
+  createdById     String?
+  
+  description    String?
+  status        PettyCashStatus       @default(ACTIVE)
+  
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  
+  @@unique([name])
+  @@map("petty_cash")
+}
+
+model PettyCashDisbursement {
+  id               String                @id @default(auto()) @map("_id") @db.ObjectId
+  pettyCashId       String               @db.ObjectId
+  
+  employeeId       String?
+  createdById      String?
+  
+  amount           Float
+  date             DateTime?          @default(now())
+  description     String?
+  payeeName        String?
+  reference       String?
+  expenseAccountId String?
+  
+  status          DisbursementStatus  @default(PENDING)
+  approvedBy      String?
+  approvedAt      DateTime?
+  
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  
+  @@index([pettyCashId])
+  @@index([status])
+  @@index([date])
+  @@map("petty_cash_disbursements")
+}
+
+model PettyCashLiquidation {
+  id               String                 @id @default(auto()) @map("_id") @db.ObjectId
+  pettyCashId      String                 @db.ObjectId
+  disbursementId  String                 @db.ObjectId
+  
+  submittedById    String?
+  
+  amount           Float
+  date             DateTime?          @default(now())
+  receipts         Json?
+  notes            String?
+  expenseAccountId String?
+  
+  approvedAmount   Float?
+  variance         Float?
+  approvedBy       String?
+  approvedAt       DateTime?
+  
+  status           LiquidationStatus   @default(PENDING)
+  
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  
+  @@index([pettyCashId])
+  @@index([disbursementId])
+  @@index([status])
+  @@map("petty_cash_liquidations")
+}
+
+enum PettyCashStatus {
+  ACTIVE
+  INACTIVE
+  DEPLETED
+}
+
+enum DisbursementStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  LIQUIDATING
+  LIQUIDATED
+}
+
+enum LiquidationStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

@@ -32,6 +32,8 @@ interface Advance {
   remainingBalance: number;
   deductionAmount: number;
   status: string;
+  date?: string;
+  reference?: string;
   createdAt: string;
   payments?: AdvancePayment[];
 }
@@ -48,6 +50,8 @@ export default function AdvancesPage() {
     id: '',
     deductionAmount: '',
     totalAmount: '',
+    date: '',
+    reference: '',
   });
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -60,6 +64,8 @@ export default function AdvancesPage() {
     type: 'CASH_ADVANCE',
     totalAmount: '',
     deductionAmount: '',
+    date: new Date().toISOString().split('T')[0],
+    reference: '',
   });
 
   useEffect(() => {
@@ -114,7 +120,14 @@ export default function AdvancesPage() {
 
       alert('Advance record created successfully!');
       setShowModal(false);
-      setFormData({ employeeId: '', type: 'CASH_ADVANCE', totalAmount: '', deductionAmount: '' });
+      setFormData({ 
+        employeeId: '', 
+        type: 'CASH_ADVANCE', 
+        totalAmount: '', 
+        deductionAmount: '', 
+        date: new Date().toISOString().split('T')[0], 
+        reference: '' 
+      });
       setEmployeeSearch('');
       fetchAdvances();
     } catch (err: unknown) {
@@ -135,10 +148,19 @@ export default function AdvancesPage() {
   };
 
   const handleEdit = (advance: Advance) => {
+    let dateValue = '';
+    if (advance.date) {
+      const d = new Date(advance.date);
+      if (!isNaN(d.getTime())) {
+        dateValue = d.toISOString().split('T')[0];
+      }
+    }
     setEditFormData({
       id: advance.id,
       deductionAmount: advance.deductionAmount.toString(),
       totalAmount: advance.totalAmount.toString(),
+      date: dateValue,
+      reference: advance.reference || '',
     });
     setSelectedAdvance(advance);
     setShowEditModal(true);
@@ -167,7 +189,7 @@ export default function AdvancesPage() {
 
       alert('Advance updated successfully!');
       setShowEditModal(false);
-      setEditFormData({ id: '', deductionAmount: '', totalAmount: '' });
+      setEditFormData({ id: '', deductionAmount: '', totalAmount: '', date: '', reference: '' });
       fetchAdvances();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
@@ -267,7 +289,7 @@ export default function AdvancesPage() {
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="px-6 py-3 text-left font-medium text-gray-500">Employee</th>
-                  <th className="px-6 py-3 text-left font-medium text-gray-500">Type</th>
+                  <th className="px-6 py-3 text-left font-medium text-gray-500">Type / Ref</th>
                   <th className="px-6 py-3 text-right font-medium text-gray-500">Original</th>
                   <th className="px-6 py-3 text-right font-medium text-gray-500">Balance</th>
                   <th className="px-6 py-3 text-right font-medium text-gray-500">Deduction</th>
@@ -283,7 +305,9 @@ export default function AdvancesPage() {
                       <div className="text-xs text-gray-500">{advance.employee.employeeId}</div>
                     </td>
                     <td className="px-6 py-4 text-gray-600">
-                      {getTypeName(advance.type)}
+                      <div className="font-medium text-gray-900">{getTypeName(advance.type)}</div>
+                      {advance.reference && <div className="text-xs text-gray-400">Ref: {advance.reference}</div>}
+                      {advance.date && <div className="text-[10px] text-gray-400">{format(new Date(advance.date), 'MMM dd, yyyy')}</div>}
                     </td>
                     <td className="px-6 py-4 text-right font-medium text-gray-900">
                       {formatCurrency(advance.totalAmount)}
@@ -334,8 +358,8 @@ export default function AdvancesPage() {
 
       {/* Create Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md shadow-xl overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl w-full max-w-md shadow-xl my-8">
             <div className="p-6 border-b flex justify-between items-center bg-blue-600 text-white">
               <h2 className="text-xl font-bold">New Advance Record</h2>
               <button onClick={() => setShowModal(false)} className="hover:opacity-80">
@@ -365,8 +389,8 @@ export default function AdvancesPage() {
                   />
                 </div>
                 
-                {showEmployeeList && (
-                  <div className="absolute z-[100] left-0 right-0 mt-1 bg-white border rounded-lg shadow-2xl max-h-48 overflow-y-auto">
+                {showEmployeeList && employees.length > 0 && (
+                  <div className="absolute z-[100] left-0 right-0 mt-1 bg-white border rounded-lg shadow-xl max-h-48 overflow-y-auto">
                     {employees
                       .filter(emp => emp.fullName.toLowerCase().includes(employeeSearch.toLowerCase()))
                       .map(emp => (
@@ -378,15 +402,9 @@ export default function AdvancesPage() {
                             setEmployeeSearch(emp.fullName);
                             setShowEmployeeList(false);
                           }}
-                          className="w-full text-left px-4 py-3 hover:bg-blue-50 flex items-center gap-3 border-b last:border-0"
+                          className="w-full text-left px-4 py-3 hover:bg-blue-50 border-b last:border-0 text-gray-900"
                         >
-                          <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs font-bold">
-                            {emp.fullName[0]}
-                          </div>
-                          <div className="flex flex-col">
-                            <p className="text-sm font-medium">{emp.fullName}</p>
-                            <p className="text-xs text-gray-400">{emp.employeeId}</p>
-                          </div>
+                          <p className="text-sm font-medium">{emp.fullName}</p>
                         </button>
                       ))
                     }
@@ -433,9 +451,32 @@ export default function AdvancesPage() {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date Incurred *</label>
+                  <input 
+                    type="date"
+                    required
+                    value={formData.date}
+                    onChange={(e) => setFormData({...formData, date: e.target.value})}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference No.</label>
+                  <input 
+                    type="text"
+                    value={formData.reference}
+                    onChange={(e) => setFormData({...formData, reference: e.target.value})}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+                  className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50 text-gray-700">Cancel</button>
                 <button type="submit" className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                   Save Advance
                 </button>
@@ -460,6 +501,19 @@ export default function AdvancesPage() {
             </div>
             
             <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              <div className="bg-gray-50 p-4 rounded-xl border space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Date Incurred:</span>
+                  <span className="font-medium text-gray-900">
+                    {selectedAdvance.date ? format(new Date(selectedAdvance.date), 'MMMM dd, yyyy') : 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Reference No:</span>
+                  <span className="font-medium text-gray-900">{selectedAdvance.reference || 'None'}</span>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-blue-50 rounded-xl border border-blue-100">
                 <div>
                   <p className="text-xs text-blue-600 font-bold uppercase">Original Amount</p>
@@ -543,8 +597,8 @@ export default function AdvancesPage() {
       
       {/* Edit Modal */}
       {showEditModal && selectedAdvance && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl w-full max-w-md shadow-xl overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl w-full max-w-md shadow-xl my-8">
             <div className="p-6 border-b flex justify-between items-center bg-green-600 text-white">
               <h2 className="text-xl font-bold">Edit Advance</h2>
               <button onClick={() => setShowEditModal(false)} className="hover:opacity-80">
@@ -586,9 +640,32 @@ export default function AdvancesPage() {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date Incurred *</label>
+                  <input 
+                    type="date"
+                    required
+                    value={editFormData.date}
+                    onChange={(e) => setEditFormData({...editFormData, date: e.target.value})}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reference No.</label>
+                  <input 
+                    type="text"
+                    value={editFormData.reference}
+                    onChange={(e) => setEditFormData({...editFormData, reference: e.target.value})}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={() => setShowEditModal(false)}
-                  className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+                  className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50 text-gray-700">Cancel</button>
                 <button type="submit" className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
                   Update
                 </button>

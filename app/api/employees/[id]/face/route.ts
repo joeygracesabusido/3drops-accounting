@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { cookies } from 'next/headers';
 
+export const dynamic = 'force-dynamic';
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -16,13 +18,27 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only ADMIN or HR can enroll faces
-    if (userRole !== 'ADMIN' && userRole !== 'HR') {
+    // Check authorization
+    // ADMIN/HR can enroll any employee's face
+    // EMPLOYEE can only enroll their own face
+    if (userRole === 'EMPLOYEE') {
+      const userEmail = cookieStore.get('userEmail')?.value;
+      const employee = await prisma.employee.findUnique({
+        where: { id },
+        select: { email: true },
+      });
+      
+      // Employees can only enroll their own face
+      if (!employee || employee.email !== userEmail) {
+        return NextResponse.json({ error: 'Forbidden – you can only enroll your own face' }, { status: 403 });
+      }
+    } else if (userRole !== 'ADMIN' && userRole !== 'HR') {
       return NextResponse.json({ error: 'Forbidden – only ADMIN or HR can enroll faces' }, { status: 403 });
     }
 
     const employee = await prisma.employee.findUnique({
       where: { id },
+      select: { email: true },
     });
 
     if (!employee) {

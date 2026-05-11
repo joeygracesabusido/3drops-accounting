@@ -64,9 +64,14 @@ export default function CustomersPage() {
     try {
       const res = await fetch('/api/accounting/customers');
       const data = await res.json();
-      setCustomers(data);
+      if (Array.isArray(data)) {
+        setCustomers(data);
+      } else {
+        setCustomers([]);
+      }
     } catch (err) {
       console.error('Error fetching customers:', err);
+      setCustomers([]);
     } finally {
       setLoading(false);
     }
@@ -192,11 +197,11 @@ export default function CustomersPage() {
       });
   }
 
-  const filteredCustomers = customers.filter(c =>
+  const filteredCustomers = Array.isArray(customers) ? customers.filter(c =>
     c.entityName.toLowerCase().includes(search.toLowerCase()) ||
     c.entityCode.toLowerCase().includes(search.toLowerCase()) ||
     (c.description && c.description.toLowerCase().includes(search.toLowerCase()))
-  );
+  ) : [];
 
   return (
     <div className="space-y-6">

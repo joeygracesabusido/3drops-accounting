@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { supplierId, supplierName, date, dueDate, items, totalAmount, expenseAccountId, apAccountId, isVatInclusive, noInputVat } = body;
+    const { supplierId, supplierName, date, dueDate, items, totalAmount, expenseAccountId, apAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage } = body;
 
     if (!supplierId || !supplierName || !items || items.length === 0 || !expenseAccountId || !apAccountId) {
       return NextResponse.json({ error: 'Missing required fields: supplier, items, expense account, or AP account' }, { status: 400 });
@@ -15,8 +15,19 @@ export async function POST(request: Request) {
 
     const netAmount = isVatInclusive ? totalAmount / 1.12 : totalAmount;
     const vatAmount = totalAmount - netAmount;
+    const ewtPercent = parseFloat(ewtPercentage) || 0;
+    const ewtAmount = netAmount * (ewtPercent / 100);
 
     const result = await prisma.$transaction(async (tx) => {
+      // Find EWT account if not provided but percentage exists
+      let effectiveEwtAccountId = ewtAccountId;
+      if (ewtPercent > 0 && !effectiveEwtAccountId) {
+        const ewtAccount = await tx.account.findFirst({
+          where: { code: '2340' },
+        });
+        effectiveEwtAccountId = ewtAccount?.id;
+      }
+
       // 1. Create the Purchase Bill
       const bill = await tx.purchaseBill.create({
         data: {
@@ -39,30 +50,23 @@ export async function POST(request: Request) {
       });
 
       // 2. Create the corresponding Journal Entry (Double Entry)
-      const journalEntryData: any = {
-        date: new Date(date),
-        description: `Purchase Bill ${billNumber} - ${supplierName}`,
-        reference: billNumber,
-        lines: {
-          create: [
-            {
-              accountId: expenseAccountId,
-              debit: netAmount,
-              credit: 0,
-              memo: `Bill ${billNumber} Expense`,
-            },
-          ],
+      const lines = [
+        {
+          accountId: expenseAccountId,
+          debit: netAmount,
+          credit: 0,
+          memo: `Bill ${billNumber} Expense`,
         },
-      };
+      ];
 
       if (vatAmount > 0 && !noInputVat) {
-        const inputVatAccount = await tx.account.findFirst({
+        const inputVATAccount = await tx.account.findFirst({
           where: { code: '2320' },
         });
 
-        if (inputVatAccount) {
-          journalEntryData.lines.create.push({
-            accountId: inputVatAccount.id,
+        if (inputVATAccount) {
+          lines.push({
+            accountId: inputVATAccount.id,
             debit: vatAmount,
             credit: 0,
             memo: `Bill ${billNumber} Input VAT`,
@@ -70,15 +74,41 @@ export async function POST(request: Request) {
         }
       }
 
-      journalEntryData.lines.create.push({
+      if (ewtPercent > 0 && effectiveEwtAccountId) {
+        lines.push({
+          accountId: effectiveEwtAccountId,
+          debit: 0,
+          credit: ewtAmount,
+          memo: `Bill ${billNumber} EWT (${ewtPercent}%)`,
+        });
+      }
+
+      // AP is net of EWT
+      lines.push({
         accountId: apAccountId,
         debit: 0,
-        credit: totalAmount,
+        credit: totalAmount - ewtAmount,
         memo: `Bill ${billNumber} AP`,
       });
 
+      // Sanity Check: Ensure balanced
+      const totalDebits = lines.reduce((sum, l) => sum + l.debit, 0);
+      const totalCredits = lines.reduce((sum, l) => sum + l.credit, 0);
+      const diff = Math.abs(totalDebits - totalCredits);
+
+      if (diff > 0.01) {
+        throw new Error(`Journal entry not balanced. Debits: ${totalDebits.toFixed(2)}, Credits: ${totalCredits.toFixed(2)}`);
+      }
+
       const journalEntry = await tx.journalEntry.create({
-        data: journalEntryData,
+        data: {
+          date: new Date(date),
+          description: `Purchase Bill ${billNumber} - ${supplierName}`,
+          reference: billNumber,
+          lines: {
+            create: lines,
+          },
+        },
       });
 
       // 3. Link journal entry to bill
@@ -87,8 +117,8 @@ export async function POST(request: Request) {
         data: { journalEntryId: journalEntry.id }
       });
 
-      // 4. Create SubsidiaryTransaction for the supplier's ledger
-      const supplierLedger = await tx.subsidiaryLedger.findFirst({
+      // 4. Create or find SubsidiaryTransaction for the supplier's ledger
+      let supplierLedger = await tx.subsidiaryLedger.findFirst({
         where: {
           entityType: 'SUPPLIER',
           entityName: supplierName,
@@ -96,29 +126,52 @@ export async function POST(request: Request) {
         },
       });
 
-      if (supplierLedger) {
-        await tx.subsidiaryTransaction.create({
+      // Auto-create vendor if not found to ensure GL and subsidiary are in sync
+      if (!supplierLedger) {
+        supplierLedger = await tx.subsidiaryLedger.create({
           data: {
-            ledgerId: supplierLedger.id,
-            date: new Date(date),
-            referenceNo: billNumber,
-            description: `Purchase Bill ${billNumber} - ${supplierName}`,
-            debit: 0,
-            credit: totalAmount,
-            journalEntryId: journalEntry.id,
+            accountId: apAccountId,
+            entityCode: `SUP-${Date.now()}`,
+            entityName: supplierName,
+            entityType: 'SUPPLIER',
+            description: `Auto-created from Purchase Bill ${billNumber}`,
           },
         });
       }
 
-      return { bill, journalEntry, netAmount, vatAmount };
+      await tx.subsidiaryTransaction.create({
+        data: {
+          ledgerId: supplierLedger.id,
+          date: new Date(date),
+          referenceNo: billNumber,
+          description: `Purchase Bill ${billNumber} - ${supplierName}`,
+          debit: 0,
+          credit: totalAmount - ewtAmount,
+          journalEntryId: journalEntry.id,
+        },
+      });
+
+      // Update supplier ledger totals
+      const ledgerTransactions = await tx.subsidiaryTransaction.findMany({
+        where: { ledgerId: supplierLedger.id },
+      });
+      const debitTotal = ledgerTransactions.reduce((sum, t) => sum + t.debit, 0);
+      const creditTotal = ledgerTransactions.reduce((sum, t) => sum + t.credit, 0);
+      await tx.subsidiaryLedger.update({
+        where: { id: supplierLedger.id },
+        data: {
+          debitTotal,
+          creditTotal,
+          balance: debitTotal - creditTotal,
+        },
+      });
+
+      return { bill, journalEntry, netAmount, vatAmount, ewtAmount };
     });
 
     return NextResponse.json(result);
   } catch (error) {
     console.error('Error creating purchase bill:', error);
-    if (error instanceof Error) {
-      console.error('Error details:', error.message);
-    }
     return NextResponse.json({ error: `Failed to create purchase bill: ${error instanceof Error ? error.message : 'Unknown error'}` }, { status: 500 });
   }
 }
@@ -133,25 +186,17 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { supplierId, supplierName, date, dueDate, items, totalAmount, expenseAccountId, apAccountId, isVatInclusive, noInputVat } = body;
+    const { supplierId, supplierName, date, dueDate, items, totalAmount, expenseAccountId, apAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage } = body;
 
     if (!supplierId || !supplierName || !items || items.length === 0 || !expenseAccountId || !apAccountId) {
       return NextResponse.json({ error: 'Missing required fields: supplier, items, expense account, or AP account' }, { status: 400 });
     }
 
-    // Fetch existing bill with items, then fetch journal entry separately
+    // Fetch existing bill with items
     const existingBill = await prisma.purchaseBill.findUnique({
       where: { id },
       include: { items: true },
     });
-
-    let existingJE = null;
-    if (existingBill?.journalEntryId) {
-      existingJE = await prisma.journalEntry.findUnique({
-        where: { id: existingBill.journalEntryId },
-        include: { lines: true },
-      });
-    }
 
     if (!existingBill) {
       return NextResponse.json({ error: 'Bill not found' }, { status: 404 });
@@ -164,8 +209,19 @@ export async function PATCH(request: Request) {
 
     const netAmount = isVatInclusive ? totalAmount / 1.12 : totalAmount;
     const vatAmount = totalAmount - netAmount;
+    const ewtPercent = parseFloat(ewtPercentage) || 0;
+    const ewtAmount = netAmount * (ewtPercent / 100);
 
     const result = await prisma.$transaction(async (tx) => {
+      // Find EWT account if not provided but percentage exists
+      let effectiveEwtAccountId = ewtAccountId;
+      if (ewtPercent > 0 && !effectiveEwtAccountId) {
+        const ewtAccount = await tx.account.findFirst({
+          where: { code: '2340' },
+        });
+        effectiveEwtAccountId = ewtAccount?.id;
+      }
+
       // 1. Update the Purchase Bill
       const updatedBill = await tx.purchaseBill.update({
         where: { id },
@@ -203,30 +259,23 @@ export async function PATCH(request: Request) {
       }
 
       // 4. Create new journal entry with updated amounts
-      const journalEntryData: any = {
-        date: new Date(date),
-        description: `Purchase Bill ${existingBill.billNumber} - ${supplierName}`,
-        reference: existingBill.billNumber,
-        lines: {
-          create: [
-            {
-              accountId: expenseAccountId,
-              debit: netAmount,
-              credit: 0,
-              memo: `Bill ${existingBill.billNumber} Expense`,
-            },
-          ],
+      const lines = [
+        {
+          accountId: expenseAccountId,
+          debit: netAmount,
+          credit: 0,
+          memo: `Bill ${existingBill.billNumber} Expense`,
         },
-      };
+      ];
 
       if (vatAmount > 0 && !noInputVat) {
-        const inputVatAccount = await tx.account.findFirst({
+        const inputVATAccount = await tx.account.findFirst({
           where: { code: '2320' },
         });
 
-        if (inputVatAccount) {
-          journalEntryData.lines.create.push({
-            accountId: inputVatAccount.id,
+        if (inputVATAccount) {
+          lines.push({
+            accountId: inputVATAccount.id,
             debit: vatAmount,
             credit: 0,
             memo: `Bill ${existingBill.billNumber} Input VAT`,
@@ -234,15 +283,41 @@ export async function PATCH(request: Request) {
         }
       }
 
-      journalEntryData.lines.create.push({
+      if (ewtPercent > 0 && effectiveEwtAccountId) {
+        lines.push({
+          accountId: effectiveEwtAccountId,
+          debit: 0,
+          credit: ewtAmount,
+          memo: `Bill ${existingBill.billNumber} EWT (${ewtPercent}%)`,
+        });
+      }
+
+      // AP is net of EWT
+      lines.push({
         accountId: apAccountId,
         debit: 0,
-        credit: totalAmount,
+        credit: totalAmount - ewtAmount,
         memo: `Bill ${existingBill.billNumber} AP`,
       });
 
+      // Sanity Check: Ensure balanced
+      const totalDebits = lines.reduce((sum, l) => sum + l.debit, 0);
+      const totalCredits = lines.reduce((sum, l) => sum + l.credit, 0);
+      const diff = Math.abs(totalDebits - totalCredits);
+
+      if (diff > 0.01) {
+        throw new Error(`Journal entry not balanced. Debits: ${totalDebits.toFixed(2)}, Credits: ${totalCredits.toFixed(2)}`);
+      }
+
       const journalEntry = await tx.journalEntry.create({
-        data: journalEntryData,
+        data: {
+          date: new Date(date),
+          description: `Purchase Bill ${existingBill.billNumber} - ${supplierName}`,
+          reference: existingBill.billNumber,
+          lines: {
+            create: lines,
+          },
+        },
       });
 
       // 5. Link journal entry to bill
@@ -267,30 +342,79 @@ export async function PATCH(request: Request) {
         },
       });
 
-      if (supplierLedger) {
-        await tx.subsidiaryTransaction.create({
-          data: {
-            ledgerId: supplierLedger.id,
-            date: new Date(date),
-            referenceNo: existingBill.billNumber,
-            description: `Purchase Bill ${existingBill.billNumber} - ${supplierName}`,
-            debit: 0,
-            credit: totalAmount,
-            journalEntryId: journalEntry.id,
-          },
-        });
-      }
+        if (supplierLedger) {
+          await tx.subsidiaryTransaction.create({
+            data: {
+              ledgerId: supplierLedger.id,
+              date: new Date(date),
+              referenceNo: existingBill.billNumber,
+              description: `Purchase Bill ${existingBill.billNumber} - ${supplierName}`,
+              debit: 0,
+              credit: totalAmount - ewtAmount,
+              journalEntryId: journalEntry.id,
+            },
+          });
 
-      return { bill: updatedBill, journalEntry, netAmount, vatAmount };
+          // Update supplier ledger totals
+          const ledgerTransactions = await tx.subsidiaryTransaction.findMany({
+            where: { ledgerId: supplierLedger.id },
+          });
+          const debitTotal = ledgerTransactions.reduce((sum, t) => sum + t.debit, 0);
+          const creditTotal = ledgerTransactions.reduce((sum, t) => sum + t.credit, 0);
+          await tx.subsidiaryLedger.update({
+            where: { id: supplierLedger.id },
+            data: {
+              debitTotal,
+              creditTotal,
+              balance: debitTotal - creditTotal,
+            },
+          });
+        }
+
+      return { bill: updatedBill, journalEntry, netAmount, vatAmount, ewtAmount };
     });
 
     return NextResponse.json(result);
   } catch (error) {
     console.error('Error updating purchase bill:', error);
-    if (error instanceof Error) {
-      console.error('Error details:', error.message);
-    }
     return NextResponse.json({ error: `Failed to update purchase bill: ${error instanceof Error ? error.message : 'Unknown error'}` }, { status: 500 });
+  }
+}
+
+// Reset bill to UNPAID (for fixing erroneous payments)
+export async function PUT(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    const action = searchParams.get('action');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Bill ID is required' }, { status: 400 });
+    }
+
+    // Reset bill status to UNPAID
+    if (action === 'reset') {
+      const bill = await prisma.purchaseBill.findUnique({ where: { id } });
+      if (!bill) {
+        return NextResponse.json({ error: 'Bill not found' }, { status: 404 });
+      }
+
+      // Delete associated payments first
+      await prisma.payment.deleteMany({ where: { billId: id } });
+
+      // Reset bill status and amount
+      const updatedBill = await prisma.purchaseBill.update({
+        where: { id },
+        data: { status: 'UNPAID', amountPaid: 0 },
+      });
+
+      return NextResponse.json({ success: true, bill: updatedBill });
+    }
+
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+  } catch (error) {
+    console.error('Error resetting bill:', error);
+    return NextResponse.json({ error: `Failed to reset bill: ${error instanceof Error ? error.message : 'Unknown error'}` }, { status: 500 });
   }
 }
 

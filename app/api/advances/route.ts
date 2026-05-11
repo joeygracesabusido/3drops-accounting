@@ -4,6 +4,8 @@ import { cookies } from 'next/headers';
 import { cache } from '@/lib/redis';
 import { hasAdminAccess } from '@/lib/auth-helpers';
 
+export const dynamic = 'force-dynamic';
+
 // Use a fresh client if the singleton is stale
 const localPrisma = new PrismaClient();
 const ADVANCES_CACHE_PREFIX = 'advances:';
@@ -117,7 +119,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const { employeeId, type, totalAmount, deductionAmount } = body;
+    const { employeeId, type, totalAmount, deductionAmount, date, reference } = body;
 
     if (!employeeId || !type || !totalAmount || !deductionAmount) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -133,6 +135,8 @@ export async function POST(request: Request) {
         totalAmount: parseFloat(totalAmount),
         remainingBalance: parseFloat(totalAmount),
         deductionAmount: parseFloat(deductionAmount),
+        date: date ? new Date(date) : new Date(),
+        reference: reference || null,
         status: 'ACTIVE',
       },
     });
@@ -199,7 +203,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { id, deductionAmount, totalAmount } = body;
+    const { id, deductionAmount, totalAmount, date, reference } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
@@ -222,14 +226,24 @@ export async function PATCH(request: Request) {
     const alreadyDeducted = currentAdvance.totalAmount - currentAdvance.remainingBalance;
     const newRemainingBalance = Math.max(0, newTotalAmount - alreadyDeducted);
 
+    const updateData: Record<string, unknown> = {
+      deductionAmount: newDeductionAmount,
+      totalAmount: newTotalAmount,
+      remainingBalance: newRemainingBalance,
+      status: newRemainingBalance <= 0 ? 'FULLY_PAID' : 'ACTIVE',
+    };
+
+    if (date !== undefined) {
+      updateData.date = date ? new Date(date) : new Date();
+    }
+    
+    if (reference !== undefined) {
+      updateData.reference = reference || null;
+    }
+
     const updatedAdvance = await localPrisma.advance.update({
       where: { id },
-      data: {
-        deductionAmount: newDeductionAmount,
-        totalAmount: newTotalAmount,
-        remainingBalance: newRemainingBalance,
-        status: newRemainingBalance <= 0 ? 'FULLY_PAID' : 'ACTIVE',
-      },
+      data: updateData,
     });
 
     // Invalidate cache

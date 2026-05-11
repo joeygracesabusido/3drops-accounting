@@ -961,7 +961,9 @@ export default function PayrollPage() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
+                  {userRole !== 'EMPLOYEE' && (
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
+                  )}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Period</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Basic Salary</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gross Pay</th>
@@ -1029,7 +1031,7 @@ export default function PayrollPage() {
                     </tr>
                     {expandedPayrollId === record.id && (
                       <tr>
-                        <td colSpan={userRole === 'EMPLOYEE' ? 7 : 9} className="bg-gray-50 px-4 py-4">
+                        <td colSpan={userRole === 'EMPLOYEE' ? 6 : 8} className="bg-gray-50 px-4 py-4">
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div>
                               <h4 className="font-medium text-gray-900 mb-2">Earnings</h4>

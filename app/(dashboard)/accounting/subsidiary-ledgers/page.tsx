@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, RefreshCw, CheckCircle2, XCircle, ChevronRight } from 'lucide-react';
+import { Plus, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function SubsidiaryLedgerPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -22,6 +22,7 @@ export default function SubsidiaryLedgerPage() {
   
   // Dialog states
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [formData, setFormData] = useState({
     entityCode: '',
     entityName: '',
@@ -29,66 +30,43 @@ export default function SubsidiaryLedgerPage() {
   });
 
   // Fetch accounts with subsidiary ledgers
-  useEffect(() => {
-    async function fetchAccounts() {
-      try {
-        const res = await fetch('/api/accounting/accounts');
-        if (!res.ok) {
-          console.error('Failed to fetch accounts:', res.status, res.statusText);
-          return;
-        }
-        const data = await res.json();
-        console.log('All accounts:', data);
-        // Filter accounts that have subsidiary ledgers
-        const controlAccounts = data.filter((acc: any) => acc.hasSubsidiaryLedger === true || acc.subsidiaryType !== undefined);
-        console.log('Control accounts:', controlAccounts);
-        setAccounts(controlAccounts);
-      } catch (err) {
-        console.error('Error fetching accounts:', err);
-      }
+  const fetchAccounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/accounting/accounts');
+      const data = await res.json();
+      // Filter accounts that have subsidiary ledgers
+      const controlAccounts = data.filter((acc: any) => acc.hasSubsidiaryLedger === true || acc.subsidiaryType !== undefined);
+      setAccounts(controlAccounts);
+    } catch (err) {
+      console.error('Error fetching accounts:', err);
     }
-    fetchAccounts();
   }, []);
 
-  // Fetch subsidiary ledgers when account selected
   useEffect(() => {
-    if (selectedAccountId) {
-      fetchLedgers();
-    } else {
-      setSelectedAccount(null);
-      setLedgers([]);
-      setReconciliation(null);
-    }
-  }, [selectedAccountId]);
+    fetchAccounts();
+  }, [fetchAccounts]);
 
-  async function fetchLedgers() {
-    if (!selectedAccountId) return;
+  // Fetch subsidiary ledgers when account selected
+  const fetchLedgers = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/accounting/subsidiary-ledgers?accountId=${selectedAccountId}`);
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        console.error('Failed to fetch ledgers:', res.status, errorData);
-        alert(errorData.error || 'Failed to load subsidiary ledgers');
-        return;
-      }
       const data = await res.json();
-      console.log('Ledgers data:', data);
       setLedgers(data.ledgers || []);
       setReconciliation(data.reconciliation);
-      if (data.account) {
-        setSelectedAccount(data.account);
-      } else {
-        const localAccount = accounts.find(a => a.id === selectedAccountId);
-        setSelectedAccount(localAccount || null);
-      }
+      setSelectedAccount(data.account);
     } catch (err) {
       console.error('Error fetching ledgers:', err);
-      alert('Error loading subsidiary ledgers');
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedAccountId]);
+
+  useEffect(() => {
+    if (selectedAccountId) {
+      fetchLedgers();
+    }
+  }, [selectedAccountId, fetchLedgers]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -116,6 +94,25 @@ export default function SubsidiaryLedgerPage() {
       }
     } catch (err) {
       console.error('Error creating ledger:', err);
+    }
+  }
+
+  async function handleSync() {
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/accounting/subsidiary-ledgers/sync', {
+        method: 'POST',
+      });
+      if (res.ok) {
+        if (selectedAccountId) fetchLedgers();
+        alert('Balances synchronized successfully!');
+      } else {
+        alert('Failed to sync balances');
+      }
+    } catch (err) {
+      console.error('Error syncing:', err);
+    } finally {
+      setIsSyncing(false);
     }
   }
 
@@ -173,14 +170,22 @@ export default function SubsidiaryLedgerPage() {
               </div>
             )}
 
-            <div className="flex items-end">
+            <div className="flex items-end gap-2">
               <Button 
                 onClick={fetchLedgers} 
                 disabled={!selectedAccountId || loading}
-                className="w-full"
+                className="flex-1"
               >
-                <RefreshCw className="w-4 h-4 mr-2" />
+                <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 Load Ledgers
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={handleSync} 
+                disabled={isSyncing}
+                title="Recalculate all subsidiary balances from transactions"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
               </Button>
             </div>
           </div>
@@ -201,33 +206,33 @@ export default function SubsidiaryLedgerPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <div className="text-muted-foreground">General Ledger Balance</div>
-                <div className="text-lg font-bold font-mono">
-                  ₱{Math.abs(reconciliation.glBalance).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                </div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Subsidiary Ledger Total</div>
-                <div className="text-lg font-bold font-mono">
-                  ₱{Math.abs(reconciliation.slBalance).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                </div>
-              </div>
-              <div>
-                <div className="text-muted-foreground">Difference</div>
-                <div className={`text-lg font-bold font-mono ${
-                  Math.abs(reconciliation.difference) > 0.01 ? 'text-red-600' : 'text-green-600'
-                }`}>
-                  ₱{Math.abs(reconciliation.difference).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
-                </div>
-              </div>
-            </div>
-            {!reconciliation.isBalanced && (
-              <p className="text-sm text-red-600 mt-2">
-                Warning: General Ledger and Subsidiary Ledger do not match. Review transactions.
-              </p>
-            )}
+             <div className="grid grid-cols-3 gap-4 text-sm">
+               <div>
+                 <div className="text-muted-foreground">General Ledger Balance</div>
+                 <div className="text-lg font-bold font-mono">
+                   ₱{reconciliation.glBalance.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                 </div>
+               </div>
+               <div>
+                 <div className="text-muted-foreground">Subsidiary Ledger Total</div>
+                 <div className="text-lg font-bold font-mono">
+                   ₱{reconciliation.slBalance.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                 </div>
+               </div>
+               <div>
+                 <div className="text-muted-foreground">Difference</div>
+                 <div className={`text-lg font-bold font-mono ${
+                   Math.abs(reconciliation.difference) > 0.01 ? 'text-red-600' : 'text-green-600'
+                 }`}>
+                   ₱{reconciliation.difference.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                 </div>
+               </div>
+             </div>
+             {!reconciliation.isBalanced && (
+               <p className="text-sm text-red-600 mt-2">
+                 Warning: General Ledger and Subsidiary Ledger do not match. Review transactions.
+               </p>
+             )}
           </CardContent>
         </Card>
       )}

@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Plus, Search, FolderTree, Pencil, Database } from 'lucide-react';
+import { Plus, Search, FolderTree, Pencil, Database, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 export default function ChartOfAccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -41,9 +42,14 @@ export default function ChartOfAccountsPage() {
     try {
       const res = await fetch('/api/accounting/accounts');
       const data = await res.json();
-      setAccounts(data);
+      if (Array.isArray(data)) {
+        setAccounts(data);
+      } else {
+        setAccounts([]);
+      }
     } catch (err) {
       console.error('Error fetching accounts:', err);
+      setAccounts([]);
     } finally {
       setLoading(false);
     }
@@ -131,10 +137,53 @@ export default function ChartOfAccountsPage() {
     setEditDialogOpen(true);
   }
 
-  const filteredAccounts = accounts.filter(acc =>
+  function exportToExcel() {
+    const data = filteredAccounts.map(acc => ({
+      Code: acc.code,
+      Name: acc.name,
+      Type: acc.type,
+      'Normal Balance': acc.normalBalance,
+      Balance: acc.balance || 0,
+      Status: acc.isActive ? 'Active' : 'Inactive',
+      'Subsidiary Ledger': acc.hasSubsidiaryLedger ? 'Yes' : 'No',
+      'Subsidiary Type': acc.subsidiaryType || '',
+      Description: acc.description || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Chart of Accounts');
+    XLSX.writeFile(wb, 'chart-of-accounts.xlsx');
+  }
+
+  function exportToCSV() {
+    const data = filteredAccounts.map(acc => ({
+      Code: acc.code,
+      Name: acc.name,
+      Type: acc.type,
+      'Normal Balance': acc.normalBalance,
+      Balance: acc.balance || 0,
+      Status: acc.isActive ? 'Active' : 'Inactive',
+      'Subsidiary Ledger': acc.hasSubsidiaryLedger ? 'Yes' : 'No',
+      'Subsidiary Type': acc.subsidiaryType || '',
+      Description: acc.description || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const csv = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'chart-of-accounts.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const filteredAccounts = Array.isArray(accounts) ? accounts.filter(acc =>
     acc.name.toLowerCase().includes(search.toLowerCase()) ||
     acc.code.toLowerCase().includes(search.toLowerCase())
-  );
+  ) : [];
 
   return (
     <div className="space-y-6">
@@ -143,299 +192,311 @@ export default function ChartOfAccountsPage() {
           <h1 className="text-3xl font-bold">Chart of Accounts</h1>
           <p className="text-muted-foreground">Manage your organization&apos;s financial account structure</p>
         </div>
-        <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Add Account
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>New Account</DialogTitle>
-              <DialogDescription>Add a new account to your Chart of Accounts</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-4">
+        <div className="flex items-center gap-2">
+          <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Add Account
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>New Account</DialogTitle>
+                <DialogDescription>Add a new account to your Chart of Accounts</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Account Code *</Label>
+                    <Input
+                      placeholder="e.g. 1000"
+                      value={formData.code}
+                      onChange={e => setFormData({...formData, code: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Account Name *</Label>
+                    <Input
+                      placeholder="e.g. Cash in Bank"
+                      value={formData.name}
+                      onChange={e => setFormData({...formData, name: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Account Type *</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={formData.type}
+                      onChange={e => setFormData({...formData, type: e.target.value})}
+                      required
+                    >
+                      <option value="ASSET">Asset</option>
+                      <option value="LIABILITY">Liability</option>
+                      <option value="EQUITY">Equity</option>
+                      <option value="REVENUE">Revenue</option>
+                      <option value="EXPENSE">Expense</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Normal Balance *</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={formData.normalBalance}
+                      onChange={e => setFormData({...formData, normalBalance: e.target.value})}
+                      required
+                    >
+                      <option value="DEBIT">Debit</option>
+                      <option value="CREDIT">Credit</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Parent Account Code</Label>
+                    <Input
+                      placeholder="e.g. 1000"
+                      value={formData.parentCode}
+                      onChange={e => setFormData({...formData, parentCode: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={formData.isActive ? 'true' : 'false'}
+                      onChange={e => setFormData({...formData, isActive: e.target.value === 'true'})}
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Inactive</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label>Account Code *</Label>
+                  <Label>Description</Label>
                   <Input
-                    placeholder="e.g. 1000"
-                    value={formData.code}
-                    onChange={e => setFormData({...formData, code: e.target.value})}
-                    required
+                    placeholder="Optional details about this account"
+                    value={formData.description}
+                    onChange={e => setFormData({...formData, description: e.target.value})}
                   />
                 </div>
+
                 <div className="space-y-2">
-                  <Label>Account Name *</Label>
+                  <Label>Initial Balance (Beginning Balance)</Label>
                   <Input
-                    placeholder="e.g. Cash in Bank"
-                    value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    required
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={formData.beginningBalance}
+                    onChange={e => setFormData({...formData, beginningBalance: parseFloat(e.target.value) || 0})}
+                    disabled={!!editingAccount}
                   />
+                  <p className="text-[0.75rem] text-muted-foreground italic">
+                    {editingAccount 
+                      ? "Initial balance cannot be changed after creation. Use journal entries for adjustments."
+                      : "Enter current balance. (Equity accounts use negative for Credit balance)."}
+                  </p>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Account Type *</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    value={formData.type}
-                    onChange={e => setFormData({...formData, type: e.target.value})}
-                    required
-                  >
-                    <option value="ASSET">Asset</option>
-                    <option value="LIABILITY">Liability</option>
-                    <option value="EQUITY">Equity</option>
-                    <option value="REVENUE">Revenue</option>
-                    <option value="EXPENSE">Expense</option>
-                  </select>
+                  <Label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.hasSubsidiaryLedger}
+                      onChange={e => setFormData({...formData, hasSubsidiaryLedger: e.target.checked, subsidiaryType: e.target.checked ? formData.subsidiaryType : ''})}
+                      className="rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    Has Subsidiary Ledger (Control Account)
+                  </Label>
                 </div>
-                <div className="space-y-2">
-                  <Label>Normal Balance *</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    value={formData.normalBalance}
-                    onChange={e => setFormData({...formData, normalBalance: e.target.value})}
-                    required
-                  >
-                    <option value="DEBIT">Debit</option>
-                    <option value="CREDIT">Credit</option>
-                  </select>
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
+                {formData.hasSubsidiaryLedger && (
+                  <div className="space-y-2">
+                    <Label>Subsidiary Type *</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={formData.subsidiaryType}
+                      onChange={e => setFormData({...formData, subsidiaryType: e.target.value})}
+                    >
+                      <option value="">Select type...</option>
+                      <option value="CUSTOMER">Customer (Accounts Receivable)</option>
+                      <option value="SUPPLIER">Supplier (Accounts Payable)</option>
+                      <option value="INVENTORY_ITEM">Inventory Item</option>
+                      <option value="ASSET">Fixed Asset</option>
+                      <option value="EMPLOYEE">Employee (Receivable/Payable)</option>
+                    </select>
+                  </div>
+                )}
+
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit">Save Account</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Button variant="outline" className="flex items-center gap-2" onClick={exportToExcel}>
+            <Download className="w-4 h-4" />
+            Export Excel
+          </Button>
+
+          <Button variant="outline" className="flex items-center gap-2" onClick={exportToCSV}>
+            <Download className="w-4 h-4" />
+            Export CSV
+          </Button>
+
+          <Dialog open={isEditDialogOpen} onOpenChange={setEditDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Account</DialogTitle>
+                <DialogDescription>Update account details</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleUpdate} className="space-y-4 pt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Account Code *</Label>
+                    <Input
+                      placeholder="e.g. 1000"
+                      value={formData.code}
+                      onChange={e => setFormData({...formData, code: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Account Name *</Label>
+                    <Input
+                      placeholder="e.g. Cash in Bank"
+                      value={formData.name}
+                      onChange={e => setFormData({...formData, name: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Account Type *</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={formData.type}
+                      onChange={e => setFormData({...formData, type: e.target.value})}
+                      required
+                    >
+                      <option value="ASSET">Asset</option>
+                      <option value="LIABILITY">Liability</option>
+                      <option value="EQUITY">Equity</option>
+                      <option value="REVENUE">Revenue</option>
+                      <option value="EXPENSE">Expense</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Normal Balance *</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={formData.normalBalance}
+                      onChange={e => setFormData({...formData, normalBalance: e.target.value})}
+                      required
+                    >
+                      <option value="DEBIT">Debit</option>
+                      <option value="CREDIT">Credit</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Parent Account Code</Label>
+                    <Input
+                      placeholder="e.g. 1000"
+                      value={formData.parentCode}
+                      onChange={e => setFormData({...formData, parentCode: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={formData.isActive ? 'true' : 'false'}
+                      onChange={e => setFormData({...formData, isActive: e.target.value === 'true'})}
+                    >
+                      <option value="true">Active</option>
+                      <option value="false">Inactive</option>
+                    </select>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label>Parent Account Code</Label>
+                  <Label>Description</Label>
                   <Input
-                    placeholder="e.g. 1000"
-                    value={formData.parentCode}
-                    onChange={e => setFormData({...formData, parentCode: e.target.value})}
+                    placeholder="Optional details about this account"
+                    value={formData.description}
+                    onChange={e => setFormData({...formData, description: e.target.value})}
                   />
                 </div>
+
                 <div className="space-y-2">
-                  <Label>Status</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    value={formData.isActive ? 'true' : 'false'}
-                    onChange={e => setFormData({...formData, isActive: e.target.value === 'true'})}
-                  >
-                    <option value="true">Active</option>
-                    <option value="false">Inactive</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Description</Label>
-                <Input
-                  placeholder="Optional details about this account"
-                  value={formData.description}
-                  onChange={e => setFormData({...formData, description: e.target.value})}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Initial Balance (Beginning Balance)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={formData.beginningBalance}
-                  onChange={e => setFormData({...formData, beginningBalance: parseFloat(e.target.value) || 0})}
-                  disabled={!!editingAccount}
-                />
-                <p className="text-[0.75rem] text-muted-foreground italic">
-                  {editingAccount 
-                    ? "Initial balance cannot be changed after creation. Use journal entries for adjustments."
-                    : "Enter current balance. (Equity accounts use negative for Credit balance)."}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasSubsidiaryLedger}
-                    onChange={e => setFormData({...formData, hasSubsidiaryLedger: e.target.checked, subsidiaryType: e.target.checked ? formData.subsidiaryType : ''})}
-                    className="rounded border-gray-300 text-primary focus:ring-primary"
-                  />
-                  Has Subsidiary Ledger (Control Account)
-                </Label>
-              </div>
-
-              {formData.hasSubsidiaryLedger && (
-                <div className="space-y-2">
-                  <Label>Subsidiary Type *</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    value={formData.subsidiaryType}
-                    onChange={e => setFormData({...formData, subsidiaryType: e.target.value})}
-                  >
-                    <option value="">Select type...</option>
-                    <option value="CUSTOMER">Customer (Accounts Receivable)</option>
-                    <option value="SUPPLIER">Supplier (Accounts Payable)</option>
-                    <option value="INVENTORY_ITEM">Inventory Item</option>
-                    <option value="ASSET">Fixed Asset</option>
-                    <option value="EMPLOYEE">Employee (Receivable/Payable)</option>
-                  </select>
-                </div>
-              )}
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-                <Button type="submit">Save Account</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={isEditDialogOpen} onOpenChange={setEditDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Account</DialogTitle>
-              <DialogDescription>Update account details</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleUpdate} className="space-y-4 pt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Account Code *</Label>
+                  <Label>Initial Balance (Beginning Balance)</Label>
                   <Input
-                    placeholder="e.g. 1000"
-                    value={formData.code}
-                    onChange={e => setFormData({...formData, code: e.target.value})}
-                    required
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={formData.beginningBalance}
+                    onChange={e => setFormData({...formData, beginningBalance: parseFloat(e.target.value) || 0})}
+                    disabled={!!editingAccount}
                   />
+                  <p className="text-[0.75rem] text-muted-foreground italic">
+                    {editingAccount 
+                      ? "Initial balance cannot be changed after creation. Use journal entries for adjustments."
+                      : "Enter current balance. (Equity accounts use negative for Credit balance)."}
+                  </p>
                 </div>
+
                 <div className="space-y-2">
-                  <Label>Account Name *</Label>
-                  <Input
-                    placeholder="e.g. Cash in Bank"
-                    value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
-                    required
-                  />
+                  <Label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={formData.hasSubsidiaryLedger}
+                      onChange={e => setFormData({...formData, hasSubsidiaryLedger: e.target.checked, subsidiaryType: e.target.checked ? formData.subsidiaryType : ''})}
+                      className="rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    Has Subsidiary Ledger (Control Account)
+                  </Label>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Account Type *</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    value={formData.type}
-                    onChange={e => setFormData({...formData, type: e.target.value})}
-                    required
-                  >
-                    <option value="ASSET">Asset</option>
-                    <option value="LIABILITY">Liability</option>
-                    <option value="EQUITY">Equity</option>
-                    <option value="REVENUE">Revenue</option>
-                    <option value="EXPENSE">Expense</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Normal Balance *</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    value={formData.normalBalance}
-                    onChange={e => setFormData({...formData, normalBalance: e.target.value})}
-                    required
-                  >
-                    <option value="DEBIT">Debit</option>
-                    <option value="CREDIT">Credit</option>
-                  </select>
-                </div>
-              </div>
+                {formData.hasSubsidiaryLedger && (
+                  <div className="space-y-2">
+                    <Label>Subsidiary Type *</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={formData.subsidiaryType}
+                      onChange={e => setFormData({...formData, subsidiaryType: e.target.value})}
+                    >
+                      <option value="">Select type...</option>
+                      <option value="CUSTOMER">Customer (Accounts Receivable)</option>
+                      <option value="SUPPLIER">Supplier (Accounts Payable)</option>
+                      <option value="INVENTORY_ITEM">Inventory Item</option>
+                      <option value="ASSET">Fixed Asset</option>
+                      <option value="EMPLOYEE">Employee (Receivable/Payable)</option>
+                    </select>
+                  </div>
+                )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Parent Account Code</Label>
-                  <Input
-                    placeholder="e.g. 1000"
-                    value={formData.parentCode}
-                    onChange={e => setFormData({...formData, parentCode: e.target.value})}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Status</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    value={formData.isActive ? 'true' : 'false'}
-                    onChange={e => setFormData({...formData, isActive: e.target.value === 'true'})}
-                  >
-                    <option value="true">Active</option>
-                    <option value="false">Inactive</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Description</Label>
-                <Input
-                  placeholder="Optional details about this account"
-                  value={formData.description}
-                  onChange={e => setFormData({...formData, description: e.target.value})}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Initial Balance (Beginning Balance)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={formData.beginningBalance}
-                  onChange={e => setFormData({...formData, beginningBalance: parseFloat(e.target.value) || 0})}
-                  disabled={!!editingAccount}
-                />
-                <p className="text-[0.75rem] text-muted-foreground italic">
-                  {editingAccount 
-                    ? "Initial balance cannot be changed after creation. Use journal entries for adjustments."
-                    : "Enter current balance. (Equity accounts use negative for Credit balance)."}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formData.hasSubsidiaryLedger}
-                    onChange={e => setFormData({...formData, hasSubsidiaryLedger: e.target.checked, subsidiaryType: e.target.checked ? formData.subsidiaryType : ''})}
-                    className="rounded border-gray-300 text-primary focus:ring-primary"
-                  />
-                  Has Subsidiary Ledger (Control Account)
-                </Label>
-              </div>
-
-              {formData.hasSubsidiaryLedger && (
-                <div className="space-y-2">
-                  <Label>Subsidiary Type *</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                    value={formData.subsidiaryType}
-                    onChange={e => setFormData({...formData, subsidiaryType: e.target.value})}
-                  >
-                    <option value="">Select type...</option>
-                    <option value="CUSTOMER">Customer (Accounts Receivable)</option>
-                    <option value="SUPPLIER">Supplier (Accounts Payable)</option>
-                    <option value="INVENTORY_ITEM">Inventory Item</option>
-                    <option value="ASSET">Fixed Asset</option>
-                    <option value="EMPLOYEE">Employee (Receivable/Payable)</option>
-                  </select>
-                </div>
-              )}
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-                <Button type="submit">Update Account</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit">Update Account</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <Card>

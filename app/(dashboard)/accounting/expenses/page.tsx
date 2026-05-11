@@ -1,16 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Plus, Search, Filter, Trash2, Save,
-  ArrowUpRight, Calendar as CalendarIcon,
-  User, FileText
+  Plus, Search, Filter, Trash2, Save, Edit, XCircle,
+  Calendar as CalendarIcon,
+  User, FileText, Eye
 } from 'lucide-react';
 import {
   Table, TableHeader, TableRow, TableHead, TableBody, TableCell
 } from '@/components/ui/table';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 
 interface ExpenseItem {
+  id?: string;
   description: string;
   amount: number;
   accountId: string;
@@ -34,6 +35,8 @@ interface Expense {
   description: string;
   status: string;
   totalAmount: number;
+  items: ExpenseItem[];
+  journalEntryId?: string;
 }
 
 interface Account {
@@ -53,24 +56,28 @@ export default function ExpensesPage() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
+  // Details Modal State
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
   // Form State
   const [formData, setFormData] = useState({
     payee: '',
     date: new Date().toISOString().split('T')[0],
     description: '',
     cashAccountId: '',
+    isVatInclusive: false,
+    noInputVat: false,
+    ewtAccountId: '',
+    ewtPercentage: '',
     items: [{ description: '', amount: 0, accountId: '' }]
   });
 
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
+  // Edit Mode State
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
-  useEffect(() => {
-    fetchExpenses();
-  }, [search, statusFilter]);
-
-  async function fetchInitialData() {
+  const fetchInitialData = useCallback(async () => {
     try {
       const [accRes, vendorsRes] = await Promise.all([
         fetch('/api/accounting/accounts').then(res => res.json()),
@@ -88,12 +95,12 @@ export default function ExpensesPage() {
       if (cashAccs.length > 0) {
         setFormData(prev => ({ ...prev, cashAccountId: cashAccs[0].id }));
       }
-    } catch (error) {
-      console.error('Error fetching initial data:', error);
+    } catch {
+      console.error('Error fetching initial data');
     }
-  }
+  }, []);
 
-  async function fetchExpenses() {
+  const fetchExpenses = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -102,13 +109,27 @@ export default function ExpensesPage() {
 
       const res = await fetch(`/api/accounting/expenses?${params.toString()}`);
       const data = await res.json();
-      setExpenses(data);
-    } catch (error) {
+      if (Array.isArray(data)) {
+        setExpenses(data);
+      } else {
+        setExpenses([]);
+        toast.error('Failed to load expenses');
+      }
+    } catch {
+      setExpenses([]);
       toast.error('Failed to load expenses');
     } finally {
       setLoading(false);
     }
-  }
+  }, [search, statusFilter]);
+
+  useEffect(() => {
+    fetchInitialData();
+  }, [fetchInitialData]);
+
+  useEffect(() => {
+    fetchExpenses();
+  }, [fetchExpenses]);
 
   const addItem = () => {
     setFormData(prev => ({
@@ -137,6 +158,82 @@ export default function ExpensesPage() {
     return formData.items.reduce((sum, item) => sum + item.amount, 0);
   };
 
+  const netOfVat = formData.isVatInclusive ? calculateTotal() / 1.12 : calculateTotal();
+  const ewtPercent = parseFloat(formData.ewtPercentage) || 0;
+  const ewtAmount = netOfVat * (ewtPercent / 100);
+  const vatAmount = formData.isVatInclusive ? calculateTotal() - netOfVat : calculateTotal() * 0.12;
+
+  const openEdit = (expense: Expense) => {
+    setEditingExpense(expense);
+    setFormData({
+      payee: expense.payee,
+      date: new Date(expense.date).toISOString().split('T')[0],
+      description: expense.description || '',
+      cashAccountId: cashAccounts[0]?.id || '',
+      isVatInclusive: false,
+      noInputVat: false,
+      ewtAccountId: '',
+      ewtPercentage: '',
+      items: expense.items.map(item => ({
+        description: item.description,
+        amount: item.amount,
+        accountId: item.accountId
+      }))
+    });
+    setIsEditDialogOpen(true);
+  };
+
+  async function handleUpdate() {
+    if (!editingExpense) return;
+    if (!formData.payee || !formData.cashAccountId) {
+      toast.error('Please provide payee and payment account');
+      return;
+    }
+
+    if (formData.items.some(item => !item.accountId || item.amount <= 0)) {
+      toast.error('Please provide valid account and amount for all items');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/accounting/expenses', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+body: JSON.stringify({
+          id: editingExpense.id,
+          ...formData,
+          totalAmount: calculateTotal(),
+          netAmount: netOfVat,
+          vatAmount,
+          ewtAmount
+        })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to update expense');
+      }
+
+      toast.success('Expense updated successfully');
+      setIsEditDialogOpen(false);
+      setEditingExpense(null);
+      setFormData({
+        payee: '',
+        date: new Date().toISOString().split('T')[0],
+        description: '',
+        cashAccountId: cashAccounts[0]?.id || '',
+        isVatInclusive: false,
+        noInputVat: false,
+        ewtAccountId: '',
+        ewtPercentage: '',
+        items: [{ description: '', amount: 0, accountId: '' }]
+      });
+      fetchExpenses();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'An error occurred while updating');
+    }
+  }
+
   async function handleSubmit() {
     if (!formData.payee || !formData.cashAccountId) {
       toast.error('Please provide payee and payment account');
@@ -152,9 +249,12 @@ export default function ExpensesPage() {
       const res = await fetch('/api/accounting/expenses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+body: JSON.stringify({
           ...formData,
-          totalAmount: calculateTotal()
+          totalAmount: calculateTotal(),
+          netAmount: netOfVat,
+          vatAmount,
+          ewtAmount
         })
       });
 
@@ -166,11 +266,15 @@ export default function ExpensesPage() {
         payee: '',
         date: new Date().toISOString().split('T')[0],
         description: '',
-        cashAccountId: '',
+        cashAccountId: cashAccounts[0]?.id || '',
+        isVatInclusive: false,
+        noInputVat: false,
+        ewtAccountId: '',
+        ewtPercentage: '',
         items: [{ description: '', amount: 0, accountId: '' }]
       });
       fetchExpenses();
-    } catch (error) {
+    } catch {
       toast.error('An error occurred while saving');
     }
   }
@@ -187,8 +291,34 @@ export default function ExpensesPage() {
 
       toast.success(`Expense marked as ${newStatus}`);
       fetchExpenses();
-    } catch (error) {
+    } catch {
       toast.error('An error occurred while updating status');
+    }
+  }
+
+  const openDetails = (expense: Expense) => {
+    setSelectedExpense(expense);
+    setIsDetailsOpen(true);
+  };
+
+  async function handleVoidExpense(id: string, expenseNumber: string) {
+    if (!confirm(`Are you sure you want to void expense ${expenseNumber}? This will also void the linked journal entry.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/accounting/expenses', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'VOID' })
+      });
+
+      if (!res.ok) throw new Error('Failed to void expense');
+
+      toast.success(`Expense ${expenseNumber} voided successfully`);
+      fetchExpenses();
+    } catch {
+      toast.error('An error occurred while voiding the expense');
     }
   }
 
@@ -269,6 +399,55 @@ export default function ExpensesPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label>Input VAT Account</Label>
+                <select className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={accounts.find(a => a.code === '2320')?.id || ''} disabled>
+                  <option value="">Input VAT (2320)</option>
+                  {accounts.filter(a => a.code === '2320').map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                </select>
+              </div>
+              <div className="flex items-end gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isVatInclusive}
+                    onChange={e => setFormData(prev => ({ ...prev, isVatInclusive: e.target.checked }))}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <span className="text-sm">VAT Inclusive</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.noInputVat}
+                    onChange={e => setFormData(prev => ({ ...prev, noInputVat: e.target.checked }))}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <span className="text-sm">No Input VAT</span>
+                </label>
+              </div>
+              <div className="space-y-2">
+                <Label>EWT Account (2340)</Label>
+                <Select
+                  value={formData.ewtAccountId}
+                  onValueChange={val => setFormData({...formData, ewtAccountId: val})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select EWT Account..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.filter(a => a.code.startsWith('234')).sort((a, b) => a.code.localeCompare(b.code)).map(a => (
+                      <SelectItem key={a.id} value={a.id}>{a.code} - {a.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>EWT %</Label>
+                <Input type="number" step="0.01" value={formData.ewtPercentage}
+                  onChange={e => setFormData({...formData, ewtPercentage: e.target.value})} placeholder="0" />
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -309,7 +488,7 @@ export default function ExpensesPage() {
                             </SelectTrigger>
                             <SelectContent>
                               {accounts.map(acc => (
-                                <SelectItem key={acc.id} value={acc.id}>{acc.code} - {acc.name}</SelectItem>
+                                <SelectItem key={acc.id} value={acc.id}>{acc.code} - {acc.name}</SelectItem>    
                               ))}
                             </SelectContent>
                           </Select>
@@ -319,7 +498,7 @@ export default function ExpensesPage() {
                             type="number"
                             className="text-right"
                             value={item.amount || ''}
-                            onChange={e => updateItem(index, 'amount', parseFloat(e.target.value) || 0)}
+                            onChange={e => updateItem(index, 'amount', parseFloat(e.target.value) || 0)}        
                           />
                         </TableCell>
                         <TableCell>
@@ -345,6 +524,203 @@ export default function ExpensesPage() {
                 </div>
                 <Button onClick={handleSubmit} className="gap-2">
                   <Save className="w-4 h-4" /> Save Expense
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Expense Dialog */}
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Expense: {editingExpense?.expenseNumber}</DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <div className="space-y-2">
+                <Label>Payee</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    list="payee-options-edit"
+                    className="pl-9"
+                    placeholder="Vendor or person name"
+                    value={formData.payee}
+                    onChange={e => setFormData({...formData, payee: e.target.value})}
+                  />
+                  <datalist id="payee-options-edit">
+                    {vendors.map(v => (
+                      <option key={v.id} value={v.entityName} />
+                    ))}
+                    {Array.from(new Set(expenses.map(e => e.payee)))
+                      .filter(p => !vendors.some(v => v.entityName === p))
+                      .map((p, i) => (
+                        <option key={`exp-edit-${i}`} value={p} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Date</Label>
+                <div className="relative">
+                  <CalendarIcon className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    type="date"
+                    className="pl-9"
+                    value={formData.date}
+                    onChange={e => setFormData({...formData, date: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  placeholder="Details about this expense..."
+                  value={formData.description}
+                  onChange={e => setFormData({...formData, description: e.target.value})}
+                />
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label>Payment Account (Credit)</Label>
+                <Select
+                  value={formData.cashAccountId}
+                  onValueChange={val => setFormData({...formData, cashAccountId: val})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Cash/Bank account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cashAccounts.map(acc => (
+                      <SelectItem key={acc.id} value={acc.id}>{acc.code} - {acc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Input VAT Account</Label>
+                <select className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={accounts.find(a => a.code === '2320')?.id || ''} disabled>
+                  <option value="">Input VAT (2320)</option>
+                  {accounts.filter(a => a.code === '2320').map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                </select>
+              </div>
+              <div className="flex items-end gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isVatInclusive}
+                    onChange={e => setFormData(prev => ({ ...prev, isVatInclusive: e.target.checked }))}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <span className="text-sm">VAT Inclusive</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.noInputVat}
+                    onChange={e => setFormData(prev => ({ ...prev, noInputVat: e.target.checked }))}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <span className="text-sm">No Input VAT</span>
+                </label>
+              </div>
+              <div className="space-y-2">
+                <Label>EWT Account (2340)</Label>
+                <Select
+                  value={formData.ewtAccountId}
+                  onValueChange={val => setFormData({...formData, ewtAccountId: val})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select EWT Account..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.filter(a => a.code.startsWith('234')).sort((a, b) => a.code.localeCompare(b.code)).map(a => (
+                      <SelectItem key={a.id} value={a.id}>{a.code} - {a.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>EWT %</Label>
+                <Input type="number" step="0.01" value={formData.ewtPercentage}
+                  onChange={e => setFormData({...formData, ewtPercentage: e.target.value})} placeholder="0" />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-lg font-semibold">Expense Items</Label>
+                <Button variant="outline" size="sm" onClick={addItem} className="gap-1">
+                  <Plus className="w-3 h-3" /> Add Item
+                </Button>
+              </div>
+
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-muted/50">
+                    <TableRow>
+                      <TableHead>Description</TableHead>
+                      <TableHead className="w-64">Category (COA)</TableHead>
+                      <TableHead className="w-32 text-right">Amount</TableHead>
+                      <TableHead className="w-10"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {formData.items.map((item, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <Input
+                            placeholder="Item description"
+                            value={item.description}
+                            onChange={e => updateItem(index, 'description', e.target.value)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={item.accountId}
+                            onValueChange={val => updateItem(index, 'accountId', val)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {accounts.map(acc => (
+                                <SelectItem key={acc.id} value={acc.id}>{acc.code} - {acc.name}</SelectItem>    
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            className="text-right"
+                            value={item.amount || ''}
+                            onChange={e => updateItem(index, 'amount', parseFloat(e.target.value) || 0)}        
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeItem(index)}
+                            className="text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="flex justify-end items-center gap-4 pt-4">
+                <div className="text-right">
+                  <span className="text-sm text-muted-foreground">Total Amount:</span>
+                  <div className="text-2xl font-bold">₱{calculateTotal().toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                </div>
+                <Button onClick={handleUpdate} className="gap-2">
+                  <Save className="w-4 h-4" /> Update Expense
                 </Button>
               </div>
             </div>
@@ -387,7 +763,7 @@ export default function ExpensesPage() {
           {loading ? (
             <div className="h-64 flex items-center justify-center text-muted-foreground">Loading expenses...</div>
           ) : expenses.length === 0 ? (
-            <div className="h-64 flex flex-col items-center justify-center text-muted-foreground space-y-2">
+            <div className="h-64 flex flex-col items-center justify-center text-muted-foreground space-y-2">    
               <FileText className="w-12 h-12 opacity-20" />
               <p>No expenses found matching your criteria.</p>
             </div>
@@ -425,13 +801,18 @@ export default function ExpensesPage() {
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-2">
-                          <Button variant="ghost" size="sm" className="gap-1 pointer-events-none opacity-50">
-                            <ArrowUpRight className="w-3 h-3" /> Details
+                          <Button variant="ghost" size="sm" className="gap-1" onClick={() => openDetails(exp)}>
+                            <Eye className="w-3 h-3" /> Details
                           </Button>
                           {exp.status === 'PENDING' && (
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
+                            <Button variant="ghost" size="sm" className="gap-1" onClick={() => openEdit(exp)}>
+                              <Edit className="w-3 h-3" /> Edit
+                            </Button>
+                          )}
+                          {exp.status === 'PENDING' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
                               className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
                               onClick={() => handleStatusChange(exp.id, 'APPROVED')}
                             >
@@ -448,6 +829,86 @@ export default function ExpensesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Expense Details Dialog */}
+      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Expense Voucher: {selectedExpense?.expenseNumber}</DialogTitle>
+          </DialogHeader>
+          {selectedExpense && (
+            <div className="space-y-6 py-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-muted-foreground">Payee</div>
+                  <div className="font-medium text-base">{selectedExpense.payee}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-muted-foreground">Date</div>
+                  <div className="font-medium text-base">{new Date(selectedExpense.date).toLocaleDateString()}</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-muted-foreground">Description</div>
+                  <div className="mt-1">{selectedExpense.description || 'No description provided'}</div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">Expense Items</Label>
+                <div className="border rounded-md overflow-hidden">
+                  <Table>
+                    <TableHeader className="bg-muted/50">
+                      <TableRow>
+                        <TableHead>Description</TableHead>
+                        <TableHead className="text-right w-32">Amount</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedExpense.items.map((item, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>{item.description}</TableCell>
+                          <TableCell className="text-right font-medium">₱{item.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/20 font-bold">
+                        <TableCell>Total Amount</TableCell>
+                        <TableCell className="text-right">₱{selectedExpense.totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center text-sm pt-4 border-t">
+                <div>
+                  <span className="text-muted-foreground mr-2">Status:</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    selectedExpense.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                    selectedExpense.status === 'VOID' ? 'bg-red-100 text-red-700' :
+                    'bg-amber-100 text-amber-700'
+                  }`}>
+                    {selectedExpense.status}
+                  </span>
+                </div>
+                {selectedExpense.journalEntryId && (
+                  <div className="text-muted-foreground italic text-xs">
+                    Linked to Journal Entry: {selectedExpense.journalEntryId}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDetailsOpen(false)}>Close</Button>
+            {selectedExpense?.status === 'PENDING' && (
+              <Button onClick={() => {
+                handleStatusChange(selectedExpense.id, 'APPROVED');
+                setIsDetailsOpen(false);
+              }}>Approve Expense</Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
