@@ -1,4 +1,4 @@
-import { differenceInMonths, differenceInYears } from "date-fns";
+import { differenceInMonths } from "date-fns";
 
 export enum DepreciationMethod {
   STRAIGHT_LINE = "STRAIGHT_LINE",

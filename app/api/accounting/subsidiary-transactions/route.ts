@@ -113,7 +113,7 @@ export async function POST(request: Request) {
 }
 
 // DELETE to reconcile
-export async function DELETE(_: Request) {
+export async function DELETE() {
   try {
     // Get all control accounts
     const controlAccounts = await (prisma as any).account.findMany({

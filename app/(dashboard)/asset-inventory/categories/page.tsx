@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Plus } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ export default function AssetCategoriesPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
 
-  const fetchCategories = async () => {
+  const fetchCategories = useCallback(async () => {
     try {
       const url = `/api/assets/categories${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`;
       const res = await fetch(url);
@@ -39,11 +39,11 @@ export default function AssetCategoriesPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedBranch]);
 
   useEffect(() => {
     fetchCategories();
-  }, [selectedBranch]);
+  }, [selectedBranch, fetchCategories]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

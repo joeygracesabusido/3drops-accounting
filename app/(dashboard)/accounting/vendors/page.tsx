@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -143,25 +143,46 @@ export default function VendorsPage() {
     paymentTerms: 'NET 30',
   });
 
-  useEffect(() => {
-    fetchVendors();
-    fetchCashAccounts();
-  }, [selectedBranch]);
-
-  async function fetchCashAccounts() {
+  const fetchVendors = useCallback(async () => {
+    setLoading(true);
     try {
-      const res = await fetch('/api/accounting/accounts');
-      const data = (await res.json()) as CashAccount[];
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      const res = await fetch(`/api/accounting/vendors?${params}`);
+      const data = await res.json() as Vendor[];
       if (Array.isArray(data)) {
-        setCashAccounts(data);
+        setVendors(data);
       } else {
-        setCashAccounts([]);
+        setVendors([]);
       }
     } catch (err) {
-      console.error('Error fetching accounts:', err);
-      setCashAccounts([]);
+      console.error('Error fetching vendors:', err);
+      setVendors([]);
+    } finally {
+      setLoading(false);
     }
-  }
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    fetchVendors();
+
+    async function fetchCashAccounts() {
+      try {
+        const res = await fetch('/api/accounting/accounts');
+        const data = (await res.json()) as CashAccount[];
+        if (Array.isArray(data)) {
+          setCashAccounts(data);
+        } else {
+          setCashAccounts([]);
+        }
+      } catch (err) {
+        console.error('Error fetching accounts:', err);
+        setCashAccounts([]);
+      }
+    }
+
+    fetchCashAccounts();
+  }, [selectedBranch, fetchVendors]);
 
   async function fetchUnpaidBills(supplierName: string) {
     try {
@@ -184,9 +205,6 @@ export default function VendorsPage() {
         setUnpaidJournalEntries([]);
         return;
       }
-      
-      // Get all unpaid purchase bill IDs for this vendor
-      const unpaidBillIds = unpaid.map(b => b.id);
       
       // Filter JEs that:
       // 1. Are not payments (skip PAY- references)
@@ -225,26 +243,6 @@ export default function VendorsPage() {
       setUnpaidJournalEntries(relevantJEs);
     } catch (err) {
       console.error('Error fetching bills and journal entries:', err);
-    }
-  }
-
-  async function fetchVendors() {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (selectedBranch) params.set('branchId', selectedBranch.id);
-      const res = await fetch(`/api/accounting/vendors?${params}`);
-      const data = await res.json() as Vendor[];
-      if (Array.isArray(data)) {
-        setVendors(data);
-      } else {
-        setVendors([]);
-      }
-    } catch (err) {
-      console.error('Error fetching vendors:', err);
-      setVendors([]);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -488,10 +486,6 @@ export default function VendorsPage() {
     return unpaidJournalEntries
       .filter(je => selectedJeIds.includes(je.id))
       .reduce((sum, je) => sum + je.totalAmount, 0);
-  }
-
-  function getTotalSelectedAmount() {
-    return getSelectedBillsTotal() + getSelectedJEsTotal();
   }
 
   const filteredVendors = vendors.filter(v =>

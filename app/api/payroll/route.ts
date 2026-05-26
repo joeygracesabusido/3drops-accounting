@@ -33,8 +33,6 @@ function countWorkingDays(
   let count = 0;
   
   // Create dates in local timezone to avoid UTC issues
-  const startStr = start.toISOString().split('T')[0];
-  const endStr = end.toISOString().split('T')[0];
   
   const holidayDates = new Set(
     holidays
@@ -196,8 +194,6 @@ export async function POST(request: Request) {
           
           // Calculate holiday pay
           let holidayPay = 0;
-          let regularHolidayHours = 0;
-          let specialHolidayHours = 0;
           let regularHolidayDays = 0;
           let specialHolidayDays = 0;
           
@@ -229,7 +225,6 @@ export async function POST(request: Request) {
             if (holiday.type === 'REGULAR') {
               // If worked on holiday with attendance before AND after
               if (workedOnHoliday && hasAttendanceBeforeAndAfter) {
-                regularHolidayHours += holidayLog.workHours;
                 regularHolidayDays += 1;
               } else if (!workedOnHoliday && hasAttendanceBefore) {
                 // Did not work on holiday but has attendance on/before holiday (legal holiday benefit)
@@ -238,7 +233,6 @@ export async function POST(request: Request) {
             } else if (holiday.type === 'SPECIAL') {
               // Special holiday requires working AND attendance before AND after
               if (workedOnHoliday && hasAttendanceBeforeAndAfter) {
-                specialHolidayHours += holidayLog.workHours;
                 specialHolidayDays += 1;
               }
             }
@@ -394,7 +388,7 @@ export async function POST(request: Request) {
             },
             netPay,
           });
-        } catch (empError) {
+        } catch {
           errors.push({ employee: employee.fullName, error: 'Failed to compute payroll' });
         }
       }
@@ -504,8 +498,6 @@ export async function POST(request: Request) {
     
     // Calculate holiday pay
     let holidayPay = 0;
-    let regularHolidayHours = 0;
-    let specialHolidayHours = 0;
     let regularHolidayDays = 0;
     let specialHolidayDays = 0;
     
@@ -537,7 +529,6 @@ export async function POST(request: Request) {
       if (holiday.type === 'REGULAR') {
         // If worked on holiday with attendance before AND after
         if (workedOnHoliday && hasAttendanceBeforeAndAfter) {
-          regularHolidayHours += holidayLog.workHours;
           regularHolidayDays += 1;
         } else if (!workedOnHoliday && hasAttendanceBefore) {
           // Did not work on holiday but has attendance on/before holiday (legal holiday benefit)
@@ -546,7 +537,6 @@ export async function POST(request: Request) {
       } else if (holiday.type === 'SPECIAL') {
         // Special holiday requires working AND attendance before AND after
         if (workedOnHoliday && hasAttendanceBeforeAndAfter) {
-          specialHolidayHours += holidayLog.workHours;
           specialHolidayDays += 1;
         }
       }

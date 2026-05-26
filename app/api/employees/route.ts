@@ -174,7 +174,7 @@ export async function DELETE(request: Request) {
     await prisma.employee.delete({ where: { id } });
     await cache.del(EMPLOYEES_CACHE_KEY);
     return NextResponse.json({ message: 'Employee deleted successfully' }, { status: 200 });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Failed to delete employee' }, { status: 500 });
   }
 }

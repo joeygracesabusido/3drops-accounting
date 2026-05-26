@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -43,11 +43,7 @@ export default function JournalPage() {
   });
   const { selectedBranch } = useBranch();
 
-  useEffect(() => {
-    fetchData();
-  }, [selectedBranch]);
-
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -69,7 +65,11 @@ export default function JournalPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    fetchData();
+  }, [selectedBranch, fetchData]);
 
   const addLine = () => {
     setFormData({

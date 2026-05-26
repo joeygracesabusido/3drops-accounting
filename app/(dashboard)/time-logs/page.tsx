@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clock, MapPin, NavigationOff, CheckCircle2, AlertCircle, Search, Play, Square, Upload, Download, FileSpreadsheet, LogOut, Trash2, User, X
 } from 'lucide-react';
@@ -83,40 +83,8 @@ export default function TimeLogsPage() {
   const [xclsImportResult, setXclsImportResult] = useState<{ success: number; absent: number; failed: number; errors: string[] } | null>(null);
   const xclsFileInputRef = useRef<HTMLInputElement>(null);
   const [showFaceModal, setShowFaceModal] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [faceEnrollStatus, setFaceEnrollStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  useEffect(() => {
-    const getCookies = () => {
-      if (typeof document === 'undefined') return { loggedIn: false };
-      const cookies = document.cookie.split(';').reduce((acc, cookie) => {
-        const [key, value] = cookie.trim().split('=');
-        acc[key] = value;
-        return acc;
-      }, {} as Record<string, string>);
-      return { 
-        loggedIn: cookies.isLoggedIn === 'true',
-        role: cookies.userRole || '',
-        id: cookies.userId || '',
-        email: cookies.userEmail || ''
-      };
-    };
-    
-    const { loggedIn, role, id, email } = getCookies();
-    if (!loggedIn) {
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login';
-      }
-      return;
-    }
-    setUserRole(role || '');
-    setUserId(id || '');
-    fetchEmployees(role || '', email || '');
-    fetchTimeLogs();
-    fetchOfficeLocation();
-    getUserLocation();
-  }, []);
 
 useEffect(() => {
     if (timeLogs.length > 0 && employeeId) {
@@ -248,7 +216,7 @@ useEffect(() => {
     }
   }, [userLocation, officeLocations]);
 
-  const fetchEmployees = async (role: string, email: string) => {
+  const fetchEmployees = useCallback(async (role: string, email: string) => {
     try {
       const res = await fetch('/api/employees', { credentials: 'include' });
       const data = await res.json() as Employee[];
@@ -293,7 +261,38 @@ useEffect(() => {
     } catch (err) {
       console.error('Failed to fetch employees:', err);
     }
-  };
+  }, [userId]);
+
+  useEffect(() => {
+    const getCookies = () => {
+      if (typeof document === 'undefined') return { loggedIn: false };
+      const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+        const [key, value] = cookie.trim().split('=');
+        acc[key] = value;
+        return acc;
+      }, {} as Record<string, string>);
+      return { 
+        loggedIn: cookies.isLoggedIn === 'true',
+        role: cookies.userRole || '',
+        id: cookies.userId || '',
+        email: cookies.userEmail || ''
+      };
+    };
+    
+    const { loggedIn, role, id, email } = getCookies();
+    if (!loggedIn) {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+      return;
+    }
+    setUserRole(role || '');
+    setUserId(id || '');
+    fetchEmployees(role || '', email || '');
+    fetchTimeLogs();
+    fetchOfficeLocation();
+    getUserLocation();
+  }, [fetchEmployees]);
 
   const handleClockIn = async () => {
     if (!employeeId) {
@@ -335,7 +334,7 @@ useEffect(() => {
 
       alert('Clock in recorded successfully!');
       fetchTimeLogs();
-    } catch (err) {
+    } catch {
       alert('Something went wrong');
     } finally {
       setClockingIn(false);
@@ -382,7 +381,7 @@ useEffect(() => {
 
       alert('Clock out recorded successfully!');
       fetchTimeLogs();
-    } catch (err) {
+    } catch {
       alert('Something went wrong');
     } finally {
       setClockingIn(false);
@@ -441,7 +440,7 @@ useEffect(() => {
         color: 'bg-green-100 text-green-700 border-green-200', 
         icon: <CheckCircle2 className="w-3 h-3 mr-1" /> 
       };
-    } catch (e) {
+    } catch {
       return { label: 'Regular', color: 'bg-gray-100 text-gray-600', icon: null };
     }
   };
@@ -457,10 +456,8 @@ useEffect(() => {
         await handleClockOut();
       }
       setShowFaceModal(false);
-      setIsVerifying(false);
     } else {
       alert(`Identity verification failed. Match distance: ${distance.toFixed(2)}. Please try again.`);
-      setIsVerifying(false);
     }
   };
 
@@ -470,7 +467,6 @@ useEffect(() => {
       return;
     }
 
-    setIsVerifying(true);
     try {
       console.log('[Face Verification] Fetching descriptor for employeeId:', employeeId);
       const res = await fetch(`/api/employees/${employeeId}/face-descriptor`, { credentials: 'include' });
@@ -500,7 +496,6 @@ useEffect(() => {
       console.error('[Face Verification] Error:', err);
       const error = err instanceof Error ? err : new Error('Unknown error');
       alert(error.message);
-      setIsVerifying(false);
     }
   };
 
@@ -597,7 +592,7 @@ useEffect(() => {
       if (data.results?.success ?? 0 > 0) {
         fetchTimeLogs();
       }
-    } catch (err) {
+    } catch {
       setImportResult({ success: 0, failed: 1, errors: ['Something went wrong during import'] });
     } finally {
       setImporting(false);
@@ -678,7 +673,7 @@ useEffect(() => {
       if ((data.results?.success ?? 0) > 0 || (data.results?.absent ?? 0) > 0) {
         fetchTimeLogs();
       }
-    } catch (err) {
+    } catch {
       setXclsImportResult({ success: 0, absent: 0, failed: 1, errors: ['Something went wrong during import'] });
     } finally {
       setXclsImporting(false);
@@ -720,7 +715,7 @@ useEffect(() => {
       if (data.results?.success ?? 0 > 0) {
         fetchTimeLogs();
       }
-    } catch (err) {
+    } catch {
       setBiometricImportResult({ success: 0, failed: 1, errors: ['Something went wrong during import'] });
     } finally {
       setBiometricImporting(false);
@@ -760,7 +755,7 @@ useEffect(() => {
       fetchTimeLogs();
       setDeleteDialogOpen(false);
       setTimeLogToDelete(null);
-    } catch (err) {
+    } catch {
       alert('Something went wrong');
     } finally {
       setDeleting(false);
@@ -1549,7 +1544,7 @@ useEffect(() => {
                   </div>
                 </div>
                 <button 
-                  onClick={() => { setShowFaceModal(false); setIsVerifying(false); setIsEnrolling(false); setFaceEnrollStatus(null); }} 
+                  onClick={() => { setShowFaceModal(false); setIsEnrolling(false); setFaceEnrollStatus(null); }} 
                   className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                 >
                   <X className="w-5 h-5" />

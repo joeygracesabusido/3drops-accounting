@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -36,11 +36,7 @@ export default function ChartOfAccountsPage() {
   });
   const { selectedBranch } = useBranch();
 
-  useEffect(() => {
-    fetchAccounts();
-  }, [selectedBranch]);
-
-  async function fetchAccounts() {
+  const fetchAccounts = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -58,7 +54,11 @@ export default function ChartOfAccountsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [selectedBranch, fetchAccounts]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

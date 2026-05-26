@@ -184,7 +184,7 @@ export default function AssetListPage() {
                   </TableRow>
                 ) : (
                   paginatedAssets.map(asset => {
-                    const { netBookValue, accumulatedDepreciation, monthsElapsed } = calculateDepreciation({
+                    const { netBookValue, monthsElapsed } = calculateDepreciation({
                       purchaseCost: asset.purchaseCost,
                       residualValue: asset.residualValue,
                       usefulLife: asset.usefulLife,

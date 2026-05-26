@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { MapPin, Settings, Save, Trash2, Globe, Edit2, Check, X, AlertCircle } from 'lucide-react';
+import { MapPin, Save, Trash2, Globe, Edit2, Check, X, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -114,38 +114,6 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Error creating location:', error);
       alert('Failed to create location');
-    }
-  };
-
-  const handleUpdateLocation = async (id: string) => {
-    const location = locations.find(loc => loc.id === id);
-    if (!location) return;
-
-    try {
-      const res = await fetch('/api/office-location', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id,
-          name: location.name,
-          latitude: location.latitude,
-          longitude: location.longitude,
-          radius: location.radius,
-          isActive: location.isActive,
-        }),
-      });
-
-      if (res.ok) {
-        alert('Location updated successfully');
-        setEditingId(null);
-        fetchLocations();
-      } else {
-        const error = await res.json();
-        alert(error.error || 'Failed to update location');
-      }
-    } catch (error) {
-      console.error('Error updating location:', error);
-      alert('Failed to update location');
     }
   };
 

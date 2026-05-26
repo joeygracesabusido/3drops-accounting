@@ -124,7 +124,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { id, status: newStatus, notes, branchId } = body;
+    const { id, status: newStatus, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });

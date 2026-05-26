@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Plus, Search, Filter, Trash2, Save, Edit, XCircle,
+  Plus, Search, Filter, Trash2, Save, Edit,
   Calendar as CalendarIcon,
   User, FileText, Eye
 } from 'lucide-react';
@@ -138,7 +138,7 @@ export default function ExpensesPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter]);
+  }, [search, statusFilter, selectedBranch]);
 
   useEffect(() => {
     fetchInitialData();
@@ -367,27 +367,6 @@ body: JSON.stringify({
     setSelectedExpense(expense);
     setIsDetailsOpen(true);
   };
-
-  async function handleVoidExpense(id: string, expenseNumber: string) {
-    if (!confirm(`Are you sure you want to void expense ${expenseNumber}? This will also void the linked journal entry.`)) {
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/accounting/expenses', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status: 'VOID' })
-      });
-
-      if (!res.ok) throw new Error('Failed to void expense');
-
-      toast.success(`Expense ${expenseNumber} voided successfully`);
-      fetchExpenses();
-    } catch {
-      toast.error('An error occurred while voiding the expense');
-    }
-  }
 
   return (
     <div className="space-y-6">

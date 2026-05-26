@@ -4,27 +4,9 @@ import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
 
-// Haversine formula to calculate distance between two GPS coordinates
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371e3; // Earth's radius in meters
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) *
-    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // Distance in meters
-}
-
 export async function GET() {
   try {
     const cookieStore = await cookies();
-    const userRole = cookieStore.get('userRole')?.value;
     const isLoggedIn = cookieStore.get('isLoggedIn')?.value;
 
     if (!isLoggedIn) {
@@ -208,70 +190,3 @@ export async function DELETE(request: Request) {
   }
 }
 
-// Helper function to check if a location is within any active office geofence
-async function checkGeofence(latitude: number, longitude: number): Promise<{
-  isValid: boolean;
-  distance: number;
-  office?: {
-    name: string;
-    radius: number;
-  };
-}> {
-  try {
-    const activeLocations = await prisma.officeLocation.findMany({
-      where: { isActive: true },
-    });
-
-    if (activeLocations.length === 0) {
-      return {
-        isValid: true,
-        distance: 0,
-        office: undefined,
-      };
-    }
-
-    let minDistance = Infinity;
-    let closestOffice = activeLocations[0];
-
-    for (const location of activeLocations) {
-      const distance = calculateDistance(
-        latitude,
-        longitude,
-        location.latitude,
-        location.longitude
-      );
-
-      if (distance <= location.radius) {
-        return {
-          isValid: true,
-          distance,
-          office: {
-            name: location.name,
-            radius: location.radius,
-          },
-        };
-      }
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestOffice = location;
-      }
-    }
-
-    return {
-      isValid: false,
-      distance: minDistance,
-      office: {
-        name: closestOffice.name,
-        radius: closestOffice.radius,
-      },
-    };
-  } catch (error) {
-    console.error('Error checking geofence:', error);
-    return {
-      isValid: true,
-      distance: 0,
-      office: undefined,
-    };
-  }
-}

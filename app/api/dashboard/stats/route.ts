@@ -23,7 +23,7 @@ interface DashboardStats {
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const cookieStore = await cookies();
     const userRole = cookieStore.get('userRole')?.value;

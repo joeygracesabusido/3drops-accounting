@@ -2,14 +2,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Search, FileText, Trash2 } from 'lucide-react';
+import { Plus, Search, Trash2 } from 'lucide-react';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
 
@@ -34,16 +34,12 @@ export default function SalesPage() {
   });
 
   useEffect(() => {
-    fetchData();
-  }, [selectedBranch]);
-
-  useEffect(() => {
     if (isDialogOpen && selectedBranch) {
       setFormData(prev => ({ ...prev, branchId: selectedBranch.id }));
     }
   }, [isDialogOpen, selectedBranch]);
 
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -59,7 +55,11 @@ export default function SalesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    fetchData();
+  }, [selectedBranch, fetchData]);
 
   const addItem = () => {
     setFormData({

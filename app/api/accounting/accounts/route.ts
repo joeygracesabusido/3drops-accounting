@@ -141,7 +141,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, code, name, type, parentCode, description, isActive, normalBalance, hasSubsidiaryLedger, subsidiaryType, beginningBalance } = body;
+    const { id, code, name, type, parentCode, description, isActive, normalBalance, hasSubsidiaryLedger, subsidiaryType } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Account ID is required' }, { status: 400 });

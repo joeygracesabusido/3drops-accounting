@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, DollarSign, Receipt, RefreshCw, ArrowRight } from 'lucide-react';
+import { Plus, DollarSign, Receipt, RefreshCw } from 'lucide-react';
 import { useBranch, Branch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
 
@@ -108,14 +108,7 @@ export default function PettyCashPage() {
     notes: '',
   });
 
-  useEffect(() => {
-    fetchFunds();
-    fetchAccounts();
-    fetchDisbursements();
-    fetchLiquidations();
-  }, [selectedBranch]);
-
-  async function fetchFunds() {
+  const fetchFunds = useCallback(async () => {
     setLoading(true);
     try {
       const url = `/api/accounting/petty-cash${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`;
@@ -132,9 +125,9 @@ export default function PettyCashPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedBranch]);
 
-  async function fetchAccounts() {
+  const fetchAccounts = useCallback(async () => {
     try {
       const res = await fetch('/api/accounting/accounts');
       const data = await res.json();
@@ -147,9 +140,9 @@ export default function PettyCashPage() {
     } catch (err) {
       console.error('Error fetching accounts:', err);
     }
-  }
+  }, []);
 
-  async function fetchDisbursements() {
+  const fetchDisbursements = useCallback(async () => {
     try {
       const url = `/api/accounting/petty-cash/disbursements${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`;
       const res = await fetch(url);
@@ -163,9 +156,9 @@ export default function PettyCashPage() {
       console.error('Error fetching disbursements:', err);
       setDisbursements([]);
     }
-  }
+  }, [selectedBranch]);
 
-  async function fetchLiquidations() {
+  const fetchLiquidations = useCallback(async () => {
     try {
       const url = `/api/accounting/petty-cash/liquidations${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`;
       const res = await fetch(url);
@@ -179,7 +172,14 @@ export default function PettyCashPage() {
       console.error('Error fetching liquidations:', err);
       setLiquidations([]);
     }
-  }
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    fetchFunds();
+    fetchAccounts();
+    fetchDisbursements();
+    fetchLiquidations();
+  }, [selectedBranch, fetchFunds, fetchAccounts, fetchDisbursements, fetchLiquidations]);
 
   async function handleLiquidationAction(id: string, status: 'APPROVED' | 'REJECTED') {
     try {

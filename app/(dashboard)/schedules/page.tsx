@@ -16,7 +16,6 @@ import {
   MoreVertical,
   ChevronDown,
   Settings2,
-  Plus,
   RefreshCcw,
   AlertCircle,
   Users,
@@ -159,7 +158,7 @@ export default function ShiftSchedulePage() {
       } else {
         toast({ variant: "destructive", title: "Error", description: data.error || "Failed to create shift" });
       }
-    } catch (error) {
+    } catch {
       toast({ variant: "destructive", title: "Error", description: "An unexpected error occurred" });
     } finally {
       setCreating(false);
@@ -223,7 +222,7 @@ export default function ShiftSchedulePage() {
         const err = await response.json().catch(() => ({ error: 'Unknown error' }));
         toast({ variant: "destructive", title: "Action Failed", description: err.error });
       }
-    } catch (error) {
+    } catch {
       toast({ variant: "destructive", title: "Error", description: "Failed to fill week" });
     } finally {
       setLoading(false);

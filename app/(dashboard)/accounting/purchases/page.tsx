@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -73,16 +73,12 @@ export default function PurchasesPage() {
   }
 
   useEffect(() => {
-    fetchData();
-  }, [selectedBranch]);
-
-  useEffect(() => {
     if (isDialogOpen && selectedBranch) {
       setFormData(prev => ({ ...prev, branchId: selectedBranch.id }));
     }
   }, [isDialogOpen, selectedBranch]);
 
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -110,7 +106,11 @@ export default function PurchasesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    fetchData();
+  }, [selectedBranch, fetchData]);
 
   async function fetchVendors() {
     setIsVendorsLoading(true);

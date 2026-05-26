@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 const LEAVES_CACHE_PREFIX = 'leaves:';
 
-export async function GET(_request: Request) {
+export async function GET() {
   try {
     const cookieStore = await cookies();
     const userEmail = cookieStore.get('userEmail')?.value;
@@ -179,7 +179,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'Unauthorized. Only admins can review leave requests.' }, { status: 403 });
     }
 
-    const updatedLeaveRequest = await prisma.leaveRequest.update({
+    await prisma.leaveRequest.update({
       where: { id },
       data: { 
         status, 

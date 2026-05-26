@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -58,11 +58,7 @@ export default function CustomersPage() {
     paymentTerms: 'NET 30',
   });
 
-  useEffect(() => {
-    fetchCustomers();
-  }, [selectedBranch]);
-
-  async function fetchCustomers() {
+  const fetchCustomers = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -80,7 +76,11 @@ export default function CustomersPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    fetchCustomers();
+  }, [selectedBranch, fetchCustomers]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

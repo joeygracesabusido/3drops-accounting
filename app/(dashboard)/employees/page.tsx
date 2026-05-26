@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Search, User, Mail, Briefcase, Building, DollarSign, Calendar, CreditCard, Pencil, Trash2, X, Wallet } from 'lucide-react';
+import { Plus, Search, User, Pencil, Trash2, X, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,8 +49,6 @@ export default function EmployeesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [error, setError] = useState('');
   const [userRole, setUserRole] = useState<string>('');
-  const [currentUserId, setCurrentUserId] = useState<string>('');
-  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [faceEnrollStatus, setFaceEnrollStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   
   const [formData, setFormData] = useState({
@@ -83,17 +81,15 @@ export default function EmployeesPage() {
         acc[key] = value;
         return acc;
       }, {} as Record<string, string>);
-      return { role: cookies.userRole || '', userId: cookies.userId || '', userEmail: cookies.userEmail || '', loggedIn: cookies.isLoggedIn === 'true' };
+      return { role: cookies.userRole || '', loggedIn: cookies.isLoggedIn === 'true' };
     };
     
-    const { role, userId, userEmail, loggedIn } = getCookies();
+    const { role, loggedIn } = getCookies();
     if (!loggedIn) {
       window.location.href = '/login';
       return;
     }
     setUserRole(role);
-    setCurrentUserId(userId);
-    setCurrentUserEmail(userEmail);
     fetchEmployees();
   }, []);
 
@@ -150,7 +146,7 @@ export default function EmployeesPage() {
       setSelectedEmployee(null);
       resetForm();
       fetchEmployees();
-    } catch (err) {
+    } catch {
       setError('Something went wrong');
     }
   };
@@ -207,7 +203,7 @@ export default function EmployeesPage() {
         setSelectedEmployee(null);
         fetchEmployees();
       }
-    } catch (err) {
+    } catch {
       alert('Something went wrong');
     }
   };

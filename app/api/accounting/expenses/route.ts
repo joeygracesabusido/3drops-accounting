@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { payee, date, description, items, totalAmount, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, netAmount, vatAmount, ewtAmount, branchId } = body;
+    const { payee, date, description, items, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, branchId } = body;
 
     if (!payee || !items || items.length === 0 || !cashAccountId) {
       return NextResponse.json({ error: 'Missing required fields: payee, items, or cash account' }, { status: 400 });
@@ -160,7 +160,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, status, payee, date, description, items, totalAmount, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, netAmount, vatAmount, ewtAmount, branchId } = body;
+    const { id, status, payee, date, description, items, totalAmount, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Expense ID is required' }, { status: 400 });

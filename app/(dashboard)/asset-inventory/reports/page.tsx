@@ -135,7 +135,6 @@ export default function PPEReportsPage() {
         let quarterNbv = 0;
 
         group.assets.forEach(asset => {
-          const qty = asset.quantity || 1;
           const prevAsOfDate = getQuarterDate(selectedYear, q - 1);
           
           const prevResult = calculateDepreciation({
@@ -509,6 +508,3 @@ export default function PPEReportsPage() {
   );
 }
 
-function TableColGroup({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
-}
