@@ -199,131 +199,124 @@ export async function PATCH(request: Request) {
       return NextResponse.json(result);
     }
 
-    // Full expense update - needs to cascade to Journal Entry
-    const result = await prisma.$transaction(async (tx) => {
-      const existingExpense = await tx.expense.findUnique({
-        where: { id },
-        include: { items: true },
-      });
-
-      if (!existingExpense) {
-        throw new Error('Expense not found');
-      }
-
-      if (!items || items.length === 0) {
-        throw new Error('Expense must have at least one item');
-      }
-
-      if (!cashAccountId) {
-        throw new Error('Cash/bank account is required');
-      }
-
-      const itemTotal = items.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
-      const computedNet = isVatInclusive ? itemTotal / 1.12 : itemTotal;
-      const computedVat = isVatInclusive ? itemTotal - computedNet : itemTotal * 0.12;
-      const ewtPercent = parseFloat(ewtPercentage) || 0;
-      const computedEwt = computedNet * (ewtPercent / 100);
-      const finalTotal = computedNet + computedVat;
-
-      if (totalAmount !== undefined && Math.abs(itemTotal - totalAmount) > 0.01) {
-        throw new Error('Total amount does not match sum of items');
-      }
-
-      // Explicitly delete journal lines first, then journal entry
-      // Cascade delete in MongoDB can be unreliable in serverless environments
-      if (existingExpense.journalEntryId) {
-        await tx.journalLine.deleteMany({
-          where: { entryId: existingExpense.journalEntryId },
-        });
-        await tx.journalEntry.delete({
-          where: { id: existingExpense.journalEntryId },
-        });
-      }
-
-      const journalEntry = await tx.journalEntry.create({
-        data: {
-          date: new Date(date || existingExpense.date),
-          description: `Expense ${existingExpense.expenseNumber} - ${payee || existingExpense.payee}`,
-          reference: existingExpense.expenseNumber,
-          branchId: safeBranchId,
-          lines: {
-            create: [
-              ...items.map((item: any) => ({
-                accountId: item.accountId,
-                debit: item.amount,
-                credit: 0,
-                memo: `Expense ${existingExpense.expenseNumber}: ${item.description}`,
-              })),
-            ]
-          }
-        }
-      });
-
-      if (computedVat > 0 && !noInputVat) {
-        const inputVATAccount = await tx.account.findFirst({
-          where: { code: '2320' },
-        });
-        if (inputVATAccount) {
-          await tx.journalLine.create({
-            data: {
-              entryId: journalEntry.id,
-              accountId: inputVATAccount.id,
-              debit: computedVat,
-              credit: 0,
-              memo: `Expense ${existingExpense.expenseNumber} Input VAT`,
-            },
-          });
-        }
-      }
-
-      if (ewtPercent > 0 && ewtAccountId) {
-        await tx.journalLine.create({
-          data: {
-            entryId: journalEntry.id,
-            accountId: ewtAccountId,
-            debit: 0,
-            credit: computedEwt,
-            memo: `Expense ${existingExpense.expenseNumber} EWT`,
-          },
-        });
-      }
-
-      await tx.journalLine.create({
-        data: {
-          entryId: journalEntry.id,
-          accountId: cashAccountId,
-          debit: 0,
-          credit: finalTotal - computedEwt,
-          memo: `Payment for ${existingExpense.expenseNumber}`,
-        },
-      });
-
-      // Update the expense record with new data AND link the journal entry
-      const updatedExpense = await tx.expense.update({
-        where: { id },
-        data: {
-          ...(date && { date: new Date(date) }),
-          ...(payee && { payee }),
-          ...(description !== undefined && { description }),
-          branchId: safeBranchId,
-          totalAmount: finalTotal,
-          journalEntryId: journalEntry.id,
-          items: {
-            deleteMany: {},
-            create: items.map((item: any) => ({
-              description: item.description,
-              amount: item.amount,
-              accountId: item.accountId,
-            })),
-          },
-        },
-        include: { items: true },
-      });
-
-      return updatedExpense;
+    // Full expense update - sequential operations (no interactive transaction)
+    // MongoDB interactive transactions expire on Vercel cold starts regardless of timeout
+    const existingExpense = await prisma.expense.findUnique({
+      where: { id },
+      include: { items: true },
     });
 
-    return NextResponse.json(result);
+    if (!existingExpense) {
+      return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
+    }
+
+    if (!items || items.length === 0) {
+      return NextResponse.json({ error: 'Expense must have at least one item' }, { status: 400 });
+    }
+
+    if (!cashAccountId) {
+      return NextResponse.json({ error: 'Cash/bank account is required' }, { status: 400 });
+    }
+
+    const itemTotal = items.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
+    const computedNet = isVatInclusive ? itemTotal / 1.12 : itemTotal;
+    const computedVat = isVatInclusive ? itemTotal - computedNet : itemTotal * 0.12;
+    const ewtPercent = parseFloat(ewtPercentage) || 0;
+    const computedEwt = computedNet * (ewtPercent / 100);
+    const finalTotal = computedNet + computedVat;
+
+    if (totalAmount !== undefined && Math.abs(itemTotal - totalAmount) > 0.01) {
+      return NextResponse.json({ error: 'Total amount does not match sum of items' }, { status: 400 });
+    }
+
+    // Step 1: Clean up old journal entry (delete lines first for MongoDB reliability)
+    if (existingExpense.journalEntryId) {
+      await prisma.journalLine.deleteMany({
+        where: { entryId: existingExpense.journalEntryId },
+      });
+      await prisma.journalEntry.delete({
+        where: { id: existingExpense.journalEntryId },
+      });
+    }
+
+    // Step 2: Resolve input VAT account ID
+    const needInputVat = computedVat > 0 && !noInputVat;
+    let inputVATAccountId: string | undefined;
+    if (needInputVat) {
+      const inputVATAccount = await prisma.account.findFirst({
+        where: { code: '2320' },
+        select: { id: true },
+      });
+      inputVATAccountId = inputVATAccount?.id;
+    }
+
+    // Step 3: Batch all journal lines into a single create
+    const allJournalLines: any[] = items.map((item: any) => ({
+      accountId: item.accountId,
+      debit: item.amount,
+      credit: 0,
+      memo: `Expense ${existingExpense.expenseNumber}: ${item.description}`,
+    }));
+
+    if (needInputVat && inputVATAccountId) {
+      allJournalLines.push({
+        accountId: inputVATAccountId,
+        debit: computedVat,
+        credit: 0,
+        memo: `Expense ${existingExpense.expenseNumber} Input VAT`,
+      });
+    }
+
+    if (ewtPercent > 0 && ewtAccountId) {
+      allJournalLines.push({
+        accountId: ewtAccountId,
+        debit: 0,
+        credit: computedEwt,
+        memo: `Expense ${existingExpense.expenseNumber} EWT`,
+      });
+    }
+
+    allJournalLines.push({
+      accountId: cashAccountId,
+      debit: 0,
+      credit: finalTotal - computedEwt,
+      memo: `Payment for ${existingExpense.expenseNumber}`,
+    });
+
+    // Step 4: Create journal entry with all lines in one operation
+    const journalEntry = await prisma.journalEntry.create({
+      data: {
+        date: new Date(date || existingExpense.date),
+        description: `Expense ${existingExpense.expenseNumber} - ${payee || existingExpense.payee}`,
+        reference: existingExpense.expenseNumber,
+        branchId: safeBranchId,
+        lines: { create: allJournalLines },
+      },
+    });
+
+    // Step 5: Update expense with new data and link to new journal entry
+    const updatedExpense = await prisma.expense.update({
+      where: { id },
+      data: {
+        ...(date && { date: new Date(date) }),
+        ...(payee && { payee }),
+        ...(description !== undefined && { description }),
+        branchId: safeBranchId,
+        totalAmount: finalTotal,
+        journalEntryId: journalEntry.id,
+        items: {
+          deleteMany: {},
+          create: items.map((item: any) => ({
+            description: item.description,
+            amount: item.amount,
+            accountId: item.accountId,
+          })),
+        },
+      },
+      include: { items: true },
+    });
+
+    return NextResponse.json(updatedExpense);
   } catch (error) {
     console.error('[Expenses PATCH] Error updating expense:', error);
 
