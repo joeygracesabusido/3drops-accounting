@@ -15,11 +15,13 @@ export async function GET(request: Request) {
     const id = searchParams.get('id');
     const pettyCashId = searchParams.get('pettyCashId');
     const status = searchParams.get('status');
+    const branchId = searchParams.get('branchId');
 
     const where: Record<string, unknown> = {};
     if (id) where.id = id;
     if (pettyCashId) where.pettyCashId = pettyCashId;
     if (status) where.status = status;
+    if (branchId) where.branchId = branchId;
 
     const disbursements = await prisma.pettyCashDisbursement.findMany({
       where,
@@ -41,7 +43,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { pettyCashId, amount, description, payeeName, reference, expenseAccountId, date } = body;
+    const { pettyCashId, amount, description, payeeName, reference, expenseAccountId, date, branchId } = body;
 
     if (!pettyCashId || !amount) {
       return NextResponse.json(
@@ -91,6 +93,7 @@ export async function POST(request: Request) {
         status: 'PENDING',
         createdById: user?.id,
         employeeId: userEmployee?.id,
+        branchId: branchId || undefined,
       },
     });
 
@@ -121,7 +124,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { id, status: newStatus, notes } = body;
+    const { id, status: newStatus, notes, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
@@ -138,13 +141,16 @@ export async function PATCH(request: Request) {
       );
     }
 
+    const updateData: Record<string, unknown> = {
+      status: newStatus,
+      approvedBy: newStatus === 'APPROVED' ? userRole : null,
+      approvedAt: newStatus === 'APPROVED' ? new Date() : null,
+    };
+    if (branchId !== undefined) updateData.branchId = branchId;
+
     const updated = await prisma.pettyCashDisbursement.update({
       where: { id },
-      data: {
-        status: newStatus,
-        approvedBy: newStatus === 'APPROVED' ? userRole : null,
-        approvedAt: newStatus === 'APPROVED' ? new Date() : null,
-      },
+      data: updateData,
     });
 
     if (newStatus === 'REJECTED') {

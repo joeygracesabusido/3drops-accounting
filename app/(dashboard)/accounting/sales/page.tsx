@@ -10,8 +10,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Plus, Search, FileText, Trash2 } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 export default function SalesPage() {
+  const { selectedBranch, branches } = useBranch();
   const [invoices, setInvoices] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [accounts, setAccounts] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [loading, setLoading] = useState(true);
@@ -25,19 +28,28 @@ export default function SalesPage() {
     dueDate: new Date().toISOString().split('T')[0],
     arAccountId: '',
     revenueAccountId: '',
+    branchId: '',
     items: [{ description: '', quantity: 1, unitPrice: 0, total: 0 }],
     totalAmount: 0,
   });
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    if (isDialogOpen && selectedBranch) {
+      setFormData(prev => ({ ...prev, branchId: selectedBranch.id }));
+    }
+  }, [isDialogOpen, selectedBranch]);
 
   async function fetchData() {
     setLoading(true);
     try {
+      const params = new URLSearchParams();
+      if (selectedBranch) params.append('branchId', selectedBranch.id);
       const [invRes, accRes] = await Promise.all([
-        fetch('/api/accounting/sales'),
+        fetch(`/api/accounting/sales?${params.toString()}`),
         fetch('/api/accounting/accounts'),
       ]);
       setInvoices(await invRes.json());
@@ -80,7 +92,7 @@ export default function SalesPage() {
       const res = await fetch('/api/accounting/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, branchId: formData.branchId || selectedBranch?.id || '' }),
       });
 
       if (res.ok) {
@@ -88,6 +100,7 @@ export default function SalesPage() {
         setFormData({
           customerId: '', customerName: '', date: new Date().toISOString().split('T')[0],
           dueDate: new Date().toISOString().split('T')[0], arAccountId: '', revenueAccountId: '',
+          branchId: selectedBranch?.id || '',
           items: [{ description: '', quantity: 1, unitPrice: 0, total: 0 }], totalAmount: 0,
         });
         fetchData();
@@ -107,12 +120,14 @@ export default function SalesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Sales Invoices</h1>
-          <p className="text-muted-foreground">Manage customer billing and accounts receivable</p>
-        </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold">Sales Invoices</h1>
+            <p className="text-muted-foreground">Manage customer billing and accounts receivable</p>
+          </div>
+          <div className="flex items-center gap-4">
+          <BranchSelector />
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button className="flex items-center gap-2"><Plus className="w-4 h-4" /> New Invoice</Button>
           </DialogTrigger>
@@ -143,6 +158,12 @@ export default function SalesPage() {
                   <Input type="number" value={formData.totalAmount} readOnly className="bg-muted" />
                 </div>
               </div>
+              {branches.length > 0 && (
+              <div className="space-y-2 mb-4">
+                <Label>Branch</Label>
+                <Input value={branches.find(b => b.id === formData.branchId)?.name || ''} disabled />
+              </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>AR Account (Debit)</Label>
@@ -193,6 +214,7 @@ export default function SalesPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-4">

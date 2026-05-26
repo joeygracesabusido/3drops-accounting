@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Wallet, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useBranch } from '@/lib/branch-context';
 
 interface Account {
   name: string;
@@ -35,11 +36,14 @@ export default function AccountTransactionsPage() {
   const router = useRouter();
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
+  const { selectedBranch } = useBranch();
 
   useEffect(() => {
     async function fetchTransactions() {
       try {
-        const res = await fetch(`/api/accounting/accounts/${params.id}/transactions`);
+        const urlParams = new URLSearchParams();
+        if (selectedBranch) urlParams.set('branchId', selectedBranch.id);
+        const res = await fetch(`/api/accounting/accounts/${params.id}/transactions?${urlParams}`);
         const result = await res.json();
         setData(result);
       } catch (err) {
@@ -49,7 +53,7 @@ export default function AccountTransactionsPage() {
       }
     }
     fetchTransactions();
-  }, [params.id]);
+  }, [params.id, selectedBranch]);
 
   function exportToExcel() {
     if (!transactions.length) return;

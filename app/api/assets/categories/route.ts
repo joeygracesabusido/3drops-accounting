@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const branchId = searchParams.get('branchId');
+
+    const where: { branchId?: string } = {};
+    if (branchId) where.branchId = branchId;
+
     const categories = await prisma.assetCategory.findMany({
+      where,
       orderBy: { name: 'asc' },
     });
     return NextResponse.json(categories);
@@ -25,6 +32,7 @@ export async function POST(request: Request) {
       data: {
         name: data.name,
         description: data.description,
+        branchId: data.branchId || null,
       },
     });
 

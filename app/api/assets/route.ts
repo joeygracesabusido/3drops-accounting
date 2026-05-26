@@ -9,11 +9,13 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const categoryId = searchParams.get('categoryId');
     const status = searchParams.get('status');
+    const branchId = searchParams.get('branchId');
 
     const assets = await prisma.asset.findMany({
       where: {
         ...(categoryId && { categoryId }),
         ...(status && { status: status as AssetStatus }),
+        ...(branchId && { branchId }),
       },
       include: {
         category: true,
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
         brand: data.brand || null,
         description: data.description,
         categoryId: data.categoryId,
+        branchId: data.branchId || null,
         purchaseDate: new Date(data.purchaseDate),
         supplier: data.supplier,
         purchaseCost: parseFloat(data.purchaseCost),

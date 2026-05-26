@@ -8,6 +8,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const branchId = searchParams.get('branchId');
 
     if (id) {
       // Get single vendor with transactions
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
       where: {
         entityType: 'SUPPLIER',
         isActive: true,
+        ...(branchId ? { branchId } : {}),
       },
       include: {
         account: true,
@@ -84,6 +86,7 @@ export async function POST(request: Request) {
       address,
       tin,
       paymentTerms,
+      branchId,
     } = body;
 
     // Validate required fields
@@ -157,6 +160,7 @@ export async function POST(request: Request) {
         creditTotal: 0,
         balance: 0,
         isActive: true,
+        branchId: branchId || undefined,
         // Store additional info in description for now (or extend schema later)
         ...(email || phone || address || tin || paymentTerms ? {
           description: [description, `Email: ${email}`, `Phone: ${phone}`, `Address: ${address}`, `TIN: ${tin}`, `Payment Terms: ${paymentTerms}`].filter(Boolean).join('\n'),
@@ -178,7 +182,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, entityName, description, email, phone, address, tin, paymentTerms, isActive } = body;
+    const { id, entityName, description, email, phone, address, tin, paymentTerms, isActive, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Vendor ID is required' }, { status: 400 });
@@ -202,13 +206,16 @@ export async function PATCH(request: Request) {
     if (tin) descParts.push(`TIN: ${tin}`);
     if (paymentTerms) descParts.push(`Payment Terms: ${paymentTerms}`);
 
+    const updateData: Record<string, unknown> = {
+      entityName,
+      description: descParts.filter(Boolean).join('\n'),
+      isActive: isActive !== undefined ? isActive : currentVendor.isActive,
+    };
+    if (branchId !== undefined) updateData.branchId = branchId;
+
     const vendor = await prisma.subsidiaryLedger.update({
       where: { id },
-      data: {
-        entityName,
-        description: descParts.filter(Boolean).join('\n'),
-        isActive: isActive !== undefined ? isActive : currentVendor.isActive,
-      },
+      data: updateData,
       include: {
         account: true,
       },

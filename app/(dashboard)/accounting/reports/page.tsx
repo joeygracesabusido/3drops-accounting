@@ -6,6 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { FileText, Download, RefreshCcw } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 interface TrialBalanceItem {
   code: string;
@@ -50,11 +52,13 @@ export default function ReportsPage() {
   const [activeReport, setActiveReport] = useState('trial-balance');
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
+  const { selectedBranch } = useBranch();
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounting/reports/${activeReport}`);
+      const url = `/api/accounting/reports/${activeReport}${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`;
+      const res = await fetch(url);
       const json = await res.json();
       setData(json);
     } catch (err) {
@@ -62,7 +66,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeReport]);
+  }, [activeReport, selectedBranch]);
 
   useEffect(() => {
     fetchReport();
@@ -75,10 +79,13 @@ export default function ReportsPage() {
           <h1 className="text-3xl font-bold">Financial Reports</h1>
           <p className="text-muted-foreground">Real-time financial statements based on your General Ledger</p>
         </div>
-        <Button variant="outline" onClick={fetchReport} disabled={loading} className="flex items-center gap-2">
-          <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh Data
-        </Button>
+        <div className="flex items-center gap-4">
+          <BranchSelector />
+          <Button variant="outline" onClick={fetchReport} disabled={loading} className="flex items-center gap-2">
+            <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh Data
+          </Button>
+        </div>
       </div>
 
       <div className="flex justify-between items-center bg-white p-4 rounded-lg border shadow-sm">

@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { calculateDepreciation } from '@/lib/depreciation';
 import * as XLSX from 'xlsx';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 export default function AssetListPage() {
   const router = useRouter();
@@ -32,6 +34,7 @@ export default function AssetListPage() {
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const { selectedBranch } = useBranch();
   const itemsPerPage = 10;
 
   const handleDelete = async (id: string) => {
@@ -52,13 +55,13 @@ export default function AssetListPage() {
   };
 
   useEffect(() => {
-    fetch('/api/assets')
+    fetch(`/api/assets${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`)
       .then(res => res.json())
       .then(data => {
         setAssets(data || []);
         setLoading(false);
       });
-  }, []);
+  }, [selectedBranch]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -125,10 +128,13 @@ export default function AssetListPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Asset Inventory</h1>
-        <Button onClick={() => router.push('/asset-inventory/new')} className="flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          Add Asset
-        </Button>
+        <div className="flex items-center gap-4">
+          <BranchSelector />
+          <Button onClick={() => router.push('/asset-inventory/new')} className="flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            Add Asset
+          </Button>
+        </div>
       </div>
 
       <Card>

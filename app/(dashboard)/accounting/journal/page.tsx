@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Plus, Trash2, Scale, FileText, Search, Edit } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 interface JournalLine {
   accountId: string;
@@ -39,18 +41,22 @@ export default function JournalPage() {
       { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' },
     ],
   });
+  const { selectedBranch } = useBranch();
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedBranch]);
 
   async function fetchData() {
     setLoading(true);
     try {
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+
       const [entriesRes, accountsRes, subsidiaryRes] = await Promise.all([
-        fetch('/api/accounting/journal'),
-        fetch('/api/accounting/accounts'),
-        fetch('/api/accounting/subsidiary-ledgers'),
+        fetch(`/api/accounting/journal?${params}`),
+        fetch(`/api/accounting/accounts?${params}`),
+        fetch(`/api/accounting/subsidiary-ledgers?${params}`),
       ]);
       const entriesData = await entriesRes.json();
       const accountsData = await accountsRes.json();
@@ -124,7 +130,7 @@ export default function JournalPage() {
     try {
       const url = '/api/accounting/journal';
       const method = editingId ? 'PUT' : 'POST';
-      const body = editingId ? { ...formData, id: editingId } : formData;
+      const body = editingId ? { ...formData, id: editingId, branchId: selectedBranch?.id } : { ...formData, branchId: selectedBranch?.id };
 
       const res = await fetch(url, {
         method,
@@ -172,8 +178,9 @@ export default function JournalPage() {
           <h1 className="text-3xl font-bold">Journal Entries</h1>
           <p className="text-muted-foreground">Record and manage your double-entry transactions</p>
         </div>
-
-        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        <div className="flex items-center gap-2">
+          <BranchSelector />
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
           setIsDialogOpen(open);
           if (!open) {
             setEditingId(null);
@@ -334,6 +341,7 @@ export default function JournalPage() {
             </form>
           </DialogContent>
         </Dialog>
+      </div>
       </div>
 
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>

@@ -6,6 +6,7 @@ import { LayoutDashboard, Users, DollarSign, Clock, FileText, LogOut, Menu, User
 import { LucideIcon } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { BranchProvider } from '@/lib/branch-context';
 
 interface NavItem {
   href: string;
@@ -269,7 +270,9 @@ export default function DashboardLayout({
 
       {/* Main content */}
       <main className="lg:ml-64 p-6 pt-20 lg:pt-6">
-        {children}
+        <BranchProvider>
+          {children}
+        </BranchProvider>
       </main>
 
       {/* Overlay for mobile */}

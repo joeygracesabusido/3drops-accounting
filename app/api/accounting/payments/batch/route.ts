@@ -7,7 +7,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     console.log('Request body:', JSON.stringify(body));
 
-    const { vendorName, amount, paymentDate, referenceNumber, notes, cashAccountId, billIds, journalEntryIds } = body;
+    const { vendorName, amount, paymentDate, referenceNumber, notes, cashAccountId, billIds, journalEntryIds, branchId } = body;
 
     if (!vendorName) return NextResponse.json({ error: 'vendorName required' }, { status: 400 });
     if (!amount) return NextResponse.json({ error: 'amount required' }, { status: 400 });
@@ -109,6 +109,7 @@ export async function POST(request: Request) {
           referenceNumber: referenceNumber || null,
           notes: notes || null,
           cashAccountId,
+          branchId: branchId || undefined,
         },
       });
 
@@ -155,6 +156,7 @@ export async function POST(request: Request) {
           date: new Date(paymentDate),
           description: `Payment for ${descParts.join('; ')}`,
           reference: referenceNumber || (paymentsMade.length > 0 ? `PAY-${paymentsMade[0].billNumber}` : `PAY-${jePaymentsMade[0]?.jeNumber || 'JE'}`),
+          branchId: branchId || undefined,
           lines: {
             create: [
               { accountId: apAccount.id, debit: totalDebit, credit: 0 },

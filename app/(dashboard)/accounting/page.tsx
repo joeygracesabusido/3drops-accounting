@@ -5,6 +5,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Wallet, ArrowUpRight, ArrowDownRight, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 interface JournalEntry {
   id: string;
@@ -22,13 +24,18 @@ export default function AccountingDashboard() {
   });
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const { selectedBranch } = useBranch();
 
   useEffect(() => {
     async function fetchData() {
       try {
+        const params = new URLSearchParams();
+        if (selectedBranch) params.set('branchId', selectedBranch.id);
+        params.set('limit', '5');
+
         const [statsRes, entriesRes] = await Promise.all([
-          fetch('/api/accounting/stats'),
-          fetch('/api/accounting/journal?limit=5')
+          fetch(`/api/accounting/stats?${params}`),
+          fetch(`/api/accounting/journal?${params}`)
         ]);
         
         const statsData = await statsRes.json();
@@ -43,7 +50,7 @@ export default function AccountingDashboard() {
       }
     }
     fetchData();
-  }, []);
+  }, [selectedBranch]);
 
   if (loading) return <div className="p-8 text-center flex flex-col items-center gap-2">
     <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -52,7 +59,10 @@ export default function AccountingDashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Accounting Overview</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Accounting Overview</h1>
+        <BranchSelector />
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Cash on Hand" value={stats.cashBalance} icon={Wallet} color="text-green-600" />

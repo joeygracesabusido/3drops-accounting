@@ -11,8 +11,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Plus, RefreshCw, CheckCircle2, XCircle } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 export default function SubsidiaryLedgerPage() {
+  const { selectedBranch } = useBranch();
   const [accounts, setAccounts] = useState<any[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [selectedAccount, setSelectedAccount] = useState<any>(null);
@@ -32,7 +35,9 @@ export default function SubsidiaryLedgerPage() {
   // Fetch accounts with subsidiary ledgers
   const fetchAccounts = useCallback(async () => {
     try {
-      const res = await fetch('/api/accounting/accounts');
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      const res = await fetch(`/api/accounting/accounts?${params}`);
       const data = await res.json();
       // Filter accounts that have subsidiary ledgers
       const controlAccounts = data.filter((acc: any) => acc.hasSubsidiaryLedger === true || acc.subsidiaryType !== undefined);
@@ -40,7 +45,7 @@ export default function SubsidiaryLedgerPage() {
     } catch (err) {
       console.error('Error fetching accounts:', err);
     }
-  }, []);
+  }, [selectedBranch]);
 
   useEffect(() => {
     fetchAccounts();
@@ -50,7 +55,9 @@ export default function SubsidiaryLedgerPage() {
   const fetchLedgers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounting/subsidiary-ledgers?accountId=${selectedAccountId}`);
+      const params = new URLSearchParams({ accountId: selectedAccountId });
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      const res = await fetch(`/api/accounting/subsidiary-ledgers?${params}`);
       const data = await res.json();
       setLedgers(data.ledgers || []);
       setReconciliation(data.reconciliation);
@@ -60,7 +67,7 @@ export default function SubsidiaryLedgerPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAccountId]);
+  }, [selectedAccountId, selectedBranch]);
 
   useEffect(() => {
     if (selectedAccountId) {
@@ -81,6 +88,7 @@ export default function SubsidiaryLedgerPage() {
           entityName: formData.entityName,
           entityType: account?.subsidiaryType,
           description: formData.description,
+          branchId: selectedBranch?.id || null,
         }),
       });
 
@@ -129,11 +137,14 @@ export default function SubsidiaryLedgerPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Subsidiary Ledgers</h1>
-        <p className="text-muted-foreground">
-          Detailed records supporting General Ledger control accounts (GAAP compliant)
-        </p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold">Subsidiary Ledgers</h1>
+          <p className="text-muted-foreground">
+            Detailed records supporting General Ledger control accounts (GAAP compliant)
+          </p>
+        </div>
+        <BranchSelector />
       </div>
 
       {/* Account Selection */}

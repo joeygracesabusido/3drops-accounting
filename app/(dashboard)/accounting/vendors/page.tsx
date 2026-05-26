@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Plus, Search, Building, Pencil, Trash2, Eye, DollarSign } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 interface CashAccount {
   id: string;
@@ -102,6 +104,7 @@ interface UnpaidJournalEntry {
 }
 
 export default function VendorsPage() {
+  const { selectedBranch } = useBranch();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
@@ -143,7 +146,7 @@ export default function VendorsPage() {
   useEffect(() => {
     fetchVendors();
     fetchCashAccounts();
-  }, []);
+  }, [selectedBranch]);
 
   async function fetchCashAccounts() {
     try {
@@ -228,7 +231,9 @@ export default function VendorsPage() {
   async function fetchVendors() {
     setLoading(true);
     try {
-      const res = await fetch('/api/accounting/vendors');
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      const res = await fetch(`/api/accounting/vendors?${params}`);
       const data = await res.json() as Vendor[];
       if (Array.isArray(data)) {
         setVendors(data);
@@ -249,7 +254,7 @@ export default function VendorsPage() {
       const res = await fetch('/api/accounting/vendors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, branchId: selectedBranch?.id || null }),
       });
 
       if (res.ok) {
@@ -276,6 +281,7 @@ export default function VendorsPage() {
         body: JSON.stringify({
           id: editingVendor.id,
           ...formData,
+          branchId: selectedBranch?.id || null,
         }),
       });
 
@@ -409,6 +415,7 @@ export default function VendorsPage() {
       cashAccountId: payAllData.cashAccountId,
       billIds: finalBillIds,
       journalEntryIds: finalJeIds,
+      branchId: selectedBranch?.id,
     };
     
     console.log('=== SENDING PAYMENT ===');
@@ -501,13 +508,15 @@ export default function VendorsPage() {
           <p className="text-muted-foreground">Manage your suppliers and vendors</p>
         </div>
 
-        <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Add Vendor
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <BranchSelector />
+          <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Add Vendor
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>New Vendor</DialogTitle>
@@ -999,6 +1008,7 @@ export default function VendorsPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card>

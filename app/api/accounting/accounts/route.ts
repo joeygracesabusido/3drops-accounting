@@ -2,9 +2,16 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
-async function calculateAccountBalance(accountId: string, normalBalance: string) {
+async function calculateAccountBalance(accountId: string, normalBalance: string, branchId?: string | null) {
+  const where: { accountId: string; entry?: { branchId: string } } = {
+    accountId,
+  };
+  if (branchId) {
+    where.entry = { branchId };
+  }
+
   const lines = await prisma.journalLine.findMany({
-    where: { accountId },
+    where,
     select: { debit: true, credit: true },
   });
 
@@ -21,6 +28,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const branchId = searchParams.get('branchId');
 
     if (id) {
       // Get single account with balance
@@ -32,7 +40,7 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Account not found' }, { status: 404 });
       }
 
-      const balance = await calculateAccountBalance(account.id, account.normalBalance);
+      const balance = await calculateAccountBalance(account.id, account.normalBalance, branchId);
       return NextResponse.json({ ...account, balance });
     }
 
@@ -45,7 +53,7 @@ export async function GET(request: Request) {
     const accountsWithBalances = await Promise.all(
       accounts.map(async (account) => ({
         ...account,
-        balance: await calculateAccountBalance(account.id, account.normalBalance),
+        balance: await calculateAccountBalance(account.id, account.normalBalance, branchId),
       }))
     );
 
@@ -154,7 +162,7 @@ export async function PATCH(request: Request) {
       },
     });
 
-    const balance = await calculateAccountBalance(account.id, account.normalBalance);
+    const balance = await calculateAccountBalance(account.id, account.normalBalance, null);
     return NextResponse.json({ ...account, balance });
   } catch (error) {
     if (error instanceof Error && (error as any).code === 'P2002') {

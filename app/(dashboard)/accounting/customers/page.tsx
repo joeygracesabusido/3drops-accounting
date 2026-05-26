@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Plus, Search, Users, Pencil, Trash2, Eye } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 interface Customer {
   id: string;
@@ -34,6 +36,7 @@ interface CustomerWithTransactions extends Customer {
 }
 
 export default function CustomersPage() {
+  const { selectedBranch } = useBranch();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
@@ -57,12 +60,14 @@ export default function CustomersPage() {
 
   useEffect(() => {
     fetchCustomers();
-  }, []);
+  }, [selectedBranch]);
 
   async function fetchCustomers() {
     setLoading(true);
     try {
-      const res = await fetch('/api/accounting/customers');
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      const res = await fetch(`/api/accounting/customers?${params}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setCustomers(data);
@@ -83,7 +88,7 @@ export default function CustomersPage() {
       const res = await fetch('/api/accounting/customers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, branchId: selectedBranch?.id || null }),
       });
 
       if (res.ok) {
@@ -110,6 +115,7 @@ export default function CustomersPage() {
         body: JSON.stringify({
           id: editingCustomer.id,
           ...formData,
+          branchId: selectedBranch?.id || null,
         }),
       });
 
@@ -211,13 +217,15 @@ export default function CustomersPage() {
           <p className="text-muted-foreground">Manage your customers and accounts receivable</p>
         </div>
 
-        <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Add Customer
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <BranchSelector />
+          <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Add Customer
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>New Customer</DialogTitle>
@@ -524,6 +532,7 @@ export default function CustomersPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card>

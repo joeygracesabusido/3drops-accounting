@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { payrollId } = body;
+    const { payrollId, branchId } = body;
 
     if (!payrollId) {
       return NextResponse.json({ error: 'Payroll ID is required' }, { status: 400 });
@@ -44,6 +44,7 @@ export async function POST(request: Request) {
           date: payroll.processedAt || new Date(),
           description: `Payroll Posting - ${payroll.month}/${payroll.year} - ${payroll.employeeId}`,
           reference: `PAY-${payroll.id.slice(-6)}`,
+          branchId: branchId || undefined,
           lines: {
             create: [
               // Debit Salary Expense (Gross Pay)

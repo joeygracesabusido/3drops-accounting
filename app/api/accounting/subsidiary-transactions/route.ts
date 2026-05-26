@@ -11,12 +11,14 @@ export async function GET(request: Request) {
     const ledgerId = searchParams.get('ledgerId');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const branchId = searchParams.get('branchId');
 
     if (!ledgerId) {
       return NextResponse.json({ error: 'ledgerId is required' }, { status: 400 });
     }
 
     const where: any = { ledgerId };
+    if (branchId) where.branchId = branchId;
     
     if (startDate || endDate) {
       where.date = {};
@@ -53,7 +55,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { ledgerId, date, referenceNo, description, debit, credit } = body;
+    const { ledgerId, date, referenceNo, description, debit, credit, branchId } = body;
 
     if (!ledgerId || !date || !referenceNo || !description) {
       return NextResponse.json({ 
@@ -89,6 +91,7 @@ export async function POST(request: Request) {
         description,
         debit: debitAmount,
         credit: creditAmount,
+        branchId: branchId || undefined,
       },
     });
 

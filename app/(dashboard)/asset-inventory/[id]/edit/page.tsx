@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useBranch } from '@/lib/branch-context';
 
 export default function EditAssetPage({ params }: { params: { id: string } }) {
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function EditAssetPage({ params }: { params: { id: string } }) {
   }[]>([]);
   const [loading, setLoading] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const { selectedBranch } = useBranch();
 
   const [formData, setFormData] = useState({
     assetCode: '',
@@ -32,6 +34,7 @@ export default function EditAssetPage({ params }: { params: { id: string } }) {
     depreciationMethod: 'STRAIGHT_LINE',
     location: '',
     quantity: '1',
+    branchId: '',
   });
 
   useEffect(() => {
@@ -61,6 +64,7 @@ export default function EditAssetPage({ params }: { params: { id: string } }) {
             depreciationMethod: asset.depreciationMethod || 'STRAIGHT_LINE',
             location: asset.location || '',
             quantity: asset.quantity?.toString() || '1',
+            branchId: asset.branchId || '',
           });
         } else {
           alert('Asset not found');
@@ -85,7 +89,10 @@ export default function EditAssetPage({ params }: { params: { id: string } }) {
       const res = await fetch(`/api/assets/${params.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          branchId: formData.branchId || selectedBranch?.id || null,
+        }),
       });
 
       if (res.ok) {

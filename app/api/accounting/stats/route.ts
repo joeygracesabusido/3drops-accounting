@@ -5,11 +5,25 @@ import prisma from '@/lib/prisma';
  * API for Accounting Dashboard Stats
  * Provides real-time financial indicators based on GAAP
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const branchId = searchParams.get('branchId');
+
+    let entryIds: string[] | undefined;
+    if (branchId) {
+      const entries = await prisma.journalEntry.findMany({
+        where: { branchId },
+        select: { id: true },
+      });
+      entryIds = entries.map(e => e.id);
+    }
+
     const accounts = await prisma.account.findMany({
       include: {
-        lines: true
+        lines: entryIds ? {
+          where: { entryId: { in: entryIds } }
+        } : true
       }
     });
 

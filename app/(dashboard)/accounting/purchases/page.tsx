@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Plus, Search, Trash2, Edit, DollarSign, History } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 interface Vendor {
   id: string;
@@ -17,6 +19,7 @@ interface Vendor {
 }
 
 export default function PurchasesPage() {
+  const { selectedBranch, branches } = useBranch();
   const [bills, setBills] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +41,7 @@ export default function PurchasesPage() {
     noInputVat: false,
     ewtAccountId: '',
     ewtPercentage: '',
+    branchId: '',
     items: [{ description: '', quantity: '1', unitPrice: '0', total: 0 }],
     totalAmount: 0,
   });
@@ -63,20 +67,28 @@ export default function PurchasesPage() {
     setFormData({
       supplierId: '', supplierName: '', date: new Date().toISOString().split('T')[0],
       dueDate: new Date().toISOString().split('T')[0], expenseAccountId: '', apAccountId: '',
-      isVatInclusive: false, noInputVat: false, ewtAccountId: '', ewtPercentage: '', items: [{ description: '', quantity: '1', unitPrice: '0', total: 0 }], totalAmount: 0,
+      isVatInclusive: false, noInputVat: false, ewtAccountId: '', ewtPercentage: '', branchId: selectedBranch?.id || '', items: [{ description: '', quantity: '1', unitPrice: '0', total: 0 }], totalAmount: 0,
     });
     setEditingBill(null);
   }
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedBranch]);
+
+  useEffect(() => {
+    if (isDialogOpen && selectedBranch) {
+      setFormData(prev => ({ ...prev, branchId: selectedBranch.id }));
+    }
+  }, [isDialogOpen, selectedBranch]);
 
   async function fetchData() {
     setLoading(true);
     try {
+      const params = new URLSearchParams();
+      if (selectedBranch) params.append('branchId', selectedBranch.id);
       const [billsRes, accRes] = await Promise.all([
-        fetch('/api/accounting/purchases'),
+        fetch(`/api/accounting/purchases?${params.toString()}`),
         fetch('/api/accounting/accounts'),
       ]);
       const billsData = billsRes.ok ? await billsRes.json() : [];
@@ -231,6 +243,7 @@ export default function PurchasesPage() {
       noInputVat: !hasInputVat,
       ewtAccountId,
       ewtPercentage,
+      branchId: selectedBranch?.id || '',
       items: bill.items.map((item: any) => ({
         description: item.description,
         quantity: item.quantity.toString(),
@@ -306,6 +319,7 @@ export default function PurchasesPage() {
           referenceNumber: payFormData.referenceNumber,
           notes: payFormData.notes,
           cashAccountId: payFormData.cashAccountId,
+          branchId: selectedBranch?.id,
         }),
       });
       if (res.ok) {
@@ -391,6 +405,7 @@ export default function PurchasesPage() {
           referenceNumber: payFormData.referenceNumber,
           notes: payFormData.notes,
           cashAccountId: payFormData.cashAccountId,
+          branchId: selectedBranch?.id,
         }),
       });
       if (res.ok) {
@@ -427,7 +442,7 @@ export default function PurchasesPage() {
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ ...formData, branchId: formData.branchId || selectedBranch?.id || '' }),
       });
 
       if (res.ok) {
@@ -454,12 +469,14 @@ export default function PurchasesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Purchase Bills</h1>
-          <p className="text-muted-foreground">Manage supplier bills and accounts payable</p>
-        </div>
-        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold">Purchase Bills</h1>
+            <p className="text-muted-foreground">Manage supplier bills and accounts payable</p>
+          </div>
+          <div className="flex items-center gap-4">
+          <BranchSelector />
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
           setIsDialogOpen(open);
           if (!open) resetForm();
           if (open) {
@@ -548,6 +565,12 @@ export default function PurchasesPage() {
                   </select>
                 </div>
               </div>
+              {branches.length > 0 && (
+              <div className="space-y-2 mb-4">
+                <Label>Branch</Label>
+                <Input value={branches.find(b => b.id === formData.branchId)?.name || ''} disabled />
+              </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Input VAT Account</Label>
@@ -665,6 +688,7 @@ export default function PurchasesPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Pay Bill Dialog */}

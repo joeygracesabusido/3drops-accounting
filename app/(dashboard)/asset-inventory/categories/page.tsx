@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 export default function AssetCategoriesPage() {
   const [categories, setCategories] = useState<{
@@ -19,13 +21,15 @@ export default function AssetCategoriesPage() {
   }[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const { selectedBranch } = useBranch();
   
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
 
   const fetchCategories = async () => {
     try {
-      const res = await fetch('/api/assets/categories');
+      const url = `/api/assets/categories${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setCategories(data);
@@ -39,7 +43,7 @@ export default function AssetCategoriesPage() {
 
   useEffect(() => {
     fetchCategories();
-  }, []);
+  }, [selectedBranch]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +51,7 @@ export default function AssetCategoriesPage() {
       const res = await fetch('/api/assets/categories', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description }),
+        body: JSON.stringify({ name, description, branchId: selectedBranch?.id }),
       });
       
       if (res.ok) {
@@ -68,8 +72,9 @@ export default function AssetCategoriesPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Asset Categories</h1>
-        
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <div className="flex items-center gap-4">
+          <BranchSelector />
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button className="flex items-center gap-2">
               <Plus className="w-4 h-4" />
@@ -107,6 +112,7 @@ export default function AssetCategoriesPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Card>

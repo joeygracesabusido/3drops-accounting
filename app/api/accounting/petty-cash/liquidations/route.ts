@@ -19,10 +19,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const pettyCashId = searchParams.get('pettyCashId');
+    const branchId = searchParams.get('branchId');
 
     const where: Record<string, unknown> = {};
     if (id) where.id = id;
     if (pettyCashId) where.pettyCashId = pettyCashId;
+    if (branchId) where.branchId = branchId;
 
     const liquidations = await prisma.pettyCashLiquidation.findMany({
       where,
@@ -50,7 +52,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { pettyCashId, disbursementId, amount, receipts, notes, expenseAccountId, date } = body;
+    const { pettyCashId, disbursementId, amount, receipts, notes, expenseAccountId, date, branchId } = body;
 
     if (!pettyCashId || !disbursementId || !amount) {
       return NextResponse.json(
@@ -94,6 +96,7 @@ export async function POST(request: Request) {
         expenseAccountId: expenseAccountId || disbursement.expenseAccountId,
         status: 'PENDING',
         submittedById: user?.id,
+        branchId: branchId || undefined,
       },
     });
 
@@ -117,7 +120,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { id, status: newStatus, approvedAmount, notes } = body;
+    const { id, status: newStatus, approvedAmount, notes, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
@@ -140,16 +143,19 @@ export async function PATCH(request: Request) {
       const actualAmount = approvedAmount ?? liquidation.amount;
       const variance = liquidation.amount - actualAmount;
 
+      const liquidationUpdateData: Record<string, unknown> = {
+        status: 'APPROVED',
+        approvedAmount: actualAmount,
+        variance,
+        approvedBy: userEmail,
+        approvedAt: new Date(),
+      };
+      if (branchId !== undefined) liquidationUpdateData.branchId = branchId;
+
       await prisma.$transaction([
         prisma.pettyCashLiquidation.update({
           where: { id },
-          data: {
-            status: 'APPROVED',
-            approvedAmount: actualAmount,
-            variance,
-            approvedBy: userEmail,
-            approvedAt: new Date(),
-          },
+          data: liquidationUpdateData,
         }),
         prisma.pettyCashDisbursement.update({
           where: { id: liquidation.disbursementId },
@@ -201,12 +207,15 @@ export async function PATCH(request: Request) {
         });
       }
     } else if (newStatus === 'REJECTED') {
+      const rejectedData: Record<string, unknown> = {
+        status: 'REJECTED',
+        notes,
+      };
+      if (branchId !== undefined) rejectedData.branchId = branchId;
+
       await prisma.pettyCashLiquidation.update({
         where: { id },
-        data: {
-          status: 'REJECTED',
-          notes,
-        },
+        data: rejectedData,
       });
 
       await prisma.pettyCashDisbursement.update({

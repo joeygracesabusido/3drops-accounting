@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { payee, date, description, items, totalAmount, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, netAmount, vatAmount, ewtAmount } = body;
+    const { payee, date, description, items, totalAmount, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, netAmount, vatAmount, ewtAmount, branchId } = body;
 
     if (!payee || !items || items.length === 0 || !cashAccountId) {
       return NextResponse.json({ error: 'Missing required fields: payee, items, or cash account' }, { status: 400 });
@@ -15,10 +15,10 @@ export async function POST(request: Request) {
 
     const itemTotal = items.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
     const computedNet = isVatInclusive ? itemTotal / 1.12 : itemTotal;
-    const computedVat = itemTotal - computedNet;
+    const computedVat = isVatInclusive ? itemTotal - computedNet : itemTotal * 0.12;
     const ewtPercent = parseFloat(ewtPercentage) || 0;
     const computedEwt = computedNet * (ewtPercent / 100);
-    const finalTotal = isVatInclusive ? itemTotal : itemTotal * 1.12;
+    const finalTotal = computedNet + computedVat;
 
     const result = await prisma.$transaction(async (tx) => {
       const expense = await tx.expense.create({
@@ -29,6 +29,7 @@ export async function POST(request: Request) {
           description,
           status: 'PENDING',
           totalAmount: finalTotal,
+          branchId: branchId || undefined,
           items: {
             create: items.map((item: any) => ({
               description: item.description,
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
           date: new Date(date),
           description: `Expense ${expenseNumber} - ${payee}`,
           reference: expenseNumber,
+          branchId: branchId || undefined,
           lines: {
             create: [
               ...items.map((item: any) => ({
@@ -116,6 +118,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search');
     const status = searchParams.get('status');
+    const branchId = searchParams.get('branchId');
 
     const where: any = {};
     if (search) {
@@ -128,10 +131,23 @@ export async function GET(request: Request) {
     if (status) {
       where.status = status;
     }
+    if (branchId) {
+      where.branchId = branchId;
+    }
 
     const expenses = await prisma.expense.findMany({
       where,
-      include: { items: true },
+      include: {
+        items: true,
+        journalEntry: {
+          include: {
+            lines: {
+              include: { account: true },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
+      },
       orderBy: { date: 'desc' },
     });
     return NextResponse.json(expenses);
@@ -144,7 +160,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, status, payee, date, description, items, totalAmount, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, netAmount, vatAmount, ewtAmount } = body;
+    const { id, status, payee, date, description, items, totalAmount, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, netAmount, vatAmount, ewtAmount, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Expense ID is required' }, { status: 400 });
@@ -201,10 +217,10 @@ export async function PATCH(request: Request) {
 
       const itemTotal = items.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
       const computedNet = isVatInclusive ? itemTotal / 1.12 : itemTotal;
-      const computedVat = itemTotal - computedNet;
+      const computedVat = isVatInclusive ? itemTotal - computedNet : itemTotal * 0.12;
       const ewtPercent = parseFloat(ewtPercentage) || 0;
       const computedEwt = computedNet * (ewtPercent / 100);
-      const finalTotal = isVatInclusive ? itemTotal : itemTotal * 1.12;
+      const finalTotal = computedNet + computedVat;
 
       if (totalAmount !== undefined && Math.abs(itemTotal - totalAmount) > 0.01) {
         throw new Error('Total amount does not match sum of items');
@@ -222,6 +238,7 @@ export async function PATCH(request: Request) {
           date: new Date(date || existingExpense.date),
           description: `Expense ${existingExpense.expenseNumber} - ${payee || existingExpense.payee}`,
           reference: existingExpense.expenseNumber,
+          branchId: branchId || undefined,
           lines: {
             create: [
               ...items.map((item: any) => ({
@@ -274,14 +291,16 @@ export async function PATCH(request: Request) {
         },
       });
 
-      // Update the expense record
+      // Update the expense record with new data AND link the journal entry
       const updatedExpense = await tx.expense.update({
         where: { id },
         data: {
           ...(date && { date: new Date(date) }),
           ...(payee && { payee }),
           ...(description !== undefined && { description }),
+          ...(branchId !== undefined && { branchId }),
           totalAmount: finalTotal,
+          journalEntryId: journalEntry.id,
           items: {
             deleteMany: {},
             create: items.map((item: any) => ({
@@ -292,12 +311,6 @@ export async function PATCH(request: Request) {
           },
         },
         include: { items: true },
-      });
-
-      // Link journal entry
-      await tx.expense.update({
-        where: { id },
-        data: { journalEntryId: journalEntry.id },
       });
 
       return updatedExpense;

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 export default function AssetTransactionsPage() {
   const [transactions, setTransactions] = useState<{
@@ -18,15 +20,16 @@ export default function AssetTransactionsPage() {
     };
   }[]>([]);
   const [loading, setLoading] = useState(true);
+  const { selectedBranch } = useBranch();
 
   useEffect(() => {
-    fetch('/api/assets/transactions')
+    fetch(`/api/assets/transactions${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`)
       .then(res => res.json())
       .then(data => {
         setTransactions(data || []);
         setLoading(false);
       });
-  }, []);
+  }, [selectedBranch]);
 
   const getTypeBadge = (type: string) => {
     switch(type) {
@@ -41,7 +44,10 @@ export default function AssetTransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Asset Transactions Audit Trail</h1>
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold">Asset Transactions Audit Trail</h1>
+        <BranchSelector />
+      </div>
 
       <Card>
         <CardHeader>

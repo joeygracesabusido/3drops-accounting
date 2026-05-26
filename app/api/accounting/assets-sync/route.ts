@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { assetId, amount, type } = body;
+    const { assetId, amount, type, branchId } = body;
 
     if (!assetId || !amount || !type) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
             date: new Date(),
             description: `Asset Acquisition: ${asset.name}`,
             reference: asset.assetCode,
+            branchId: branchId || undefined,
             lines: {
               create: [
                 { accountId: assetAcc.id, debit: amount, credit: 0, memo: 'Increase Asset Value' },
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
             date: new Date(),
             description: `Monthly Depreciation: ${asset.name}`,
             reference: asset.assetCode,
+            branchId: branchId || undefined,
             lines: {
               create: [
                 { accountId: expenseAcc.id, debit: amount, credit: 0, memo: 'Depreciation Expense' },

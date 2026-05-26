@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { customerId, customerName, date, dueDate, items, totalAmount, arAccountId, revenueAccountId } = body;
+    const { customerId, customerName, date, dueDate, items, totalAmount, arAccountId, revenueAccountId, branchId } = body;
 
     if (!customerId || !customerName || !items || items.length === 0 || !arAccountId || !revenueAccountId) {
       return NextResponse.json({ error: 'Missing required fields: customer, items, AR account, or Revenue account' }, { status: 400 });
@@ -24,6 +24,7 @@ export async function POST(request: Request) {
           customerName,
           status: 'SENT',
           totalAmount,
+          branchId: branchId || undefined,
           items: {
             create: items.map((item: any) => ({
               description: item.description,
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
           date: new Date(date),
           description: `Sales Invoice ${invoiceNumber} - ${customerName}`,
           reference: invoiceNumber,
+          branchId: branchId || undefined,
           lines: {
             create: [
               {
@@ -76,9 +78,18 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const branchId = searchParams.get('branchId');
+
+    const where: any = {};
+    if (branchId) {
+      where.branchId = branchId;
+    }
+
     const invoices = await prisma.salesInvoice.findMany({
+      where,
       include: { items: true },
       orderBy: { date: 'desc' },
     });

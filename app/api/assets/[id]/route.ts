@@ -34,6 +34,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       name: data.name,
       description: data.description,
       categoryId: data.categoryId,
+      branchId: data.branchId || null,
       purchaseDate: data.purchaseDate ? new Date(data.purchaseDate) : undefined,
       supplier: data.supplier,
       purchaseCost: data.purchaseCost ? parseFloat(data.purchaseCost) : undefined,

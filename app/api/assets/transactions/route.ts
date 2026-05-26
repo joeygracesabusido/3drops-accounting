@@ -8,10 +8,12 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const assetId = searchParams.get('assetId');
+    const branchId = searchParams.get('branchId');
 
     const transactions = await prisma.assetTransaction.findMany({
       where: {
         ...(assetId && { assetId }),
+        ...(branchId && { branchId }),
       },
       include: {
         asset: true,
@@ -41,6 +43,7 @@ export async function POST(request: Request) {
         cost: data.cost ? parseFloat(data.cost) : null,
         notes: data.notes,
         recordedById: data.recordedById || null,
+        branchId: data.branchId || null,
       },
       include: {
         asset: true

@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { date, description, reference, lines } = body;
+    const { date, description, reference, lines, branchId } = body;
 
     if (!date || !description || !lines || !Array.isArray(lines)) {
       return NextResponse.json({ error: 'Date, description, and lines are required' }, { status: 400 });
@@ -40,6 +40,7 @@ export async function POST(request: Request) {
           date: new Date(date),
           description,
           reference: reference || 'TEMP_REF', // Placeholder
+          branchId: branchId || undefined,
           lines: {
             create: lines.map(line => ({
               accountId: line.accountId,
@@ -105,10 +106,15 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const reference = searchParams.get('reference');
+    const branchId = searchParams.get('branchId');
 
-    const where: Prisma.JournalEntryWhereInput = reference 
-      ? { reference: { contains: reference, mode: 'insensitive' } } 
-      : {};
+    const where: Prisma.JournalEntryWhereInput = {};
+    if (reference) {
+      where.reference = { contains: reference, mode: 'insensitive' };
+    }
+    if (branchId) {
+      where.branchId = branchId;
+    }
 
     const entries = await prisma.journalEntry.findMany({
       where,
@@ -132,7 +138,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { id, date, description, reference, lines } = body;
+    const { id, date, description, reference, lines, branchId } = body;
 
     if (!id || !date || !description || !lines || !Array.isArray(lines)) {
       return NextResponse.json({ error: 'ID, date, description, and lines are required' }, { status: 400 });
@@ -186,6 +192,7 @@ export async function PUT(request: Request) {
           date: new Date(date),
           description,
           reference: finalReference,
+          ...(branchId !== undefined && { branchId }),
           lines: {
             create: lines.map(line => ({
               accountId: line.accountId,

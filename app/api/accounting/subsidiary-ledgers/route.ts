@@ -10,6 +10,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const accountId = searchParams.get('accountId');
     const entityCode = searchParams.get('entityCode');
+    const branchId = searchParams.get('branchId');
 
     if (accountId) {
       // Get the control account info
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
         where: {
           accountId,
           ...(entityCode ? { entityCode } : {}),
+          ...(branchId ? { branchId } : {}),
         },
         include: {
           transactions: true,
@@ -81,7 +83,7 @@ export async function GET(request: Request) {
     } else {
       // Fetch all subsidiary ledgers if no accountId provided
       const ledgers = await prisma.subsidiaryLedger.findMany({
-        where: { isActive: true },
+        where: { isActive: true, ...(branchId ? { branchId } : {}) },
         include: { account: true },
         orderBy: { entityName: 'asc' },
       });
@@ -97,7 +99,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { accountId, entityCode, entityName, entityType, description } = body;
+    const { accountId, entityCode, entityName, entityType, description, branchId } = body;
 
     if (!accountId || !entityCode || !entityName || !entityType) {
       return NextResponse.json({ error: 'accountId, entityCode, entityName, and entityType are required' }, { status: 400 });
@@ -126,6 +128,7 @@ export async function POST(request: Request) {
         entityName,
         entityType: entityType as any,
         description,
+        branchId: branchId || undefined,
       },
     });
 
@@ -143,19 +146,22 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, entityName, description, isActive } = body;
+    const { id, entityName, description, isActive, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Ledger ID is required' }, { status: 400 });
     }
 
+    const updateData: Record<string, unknown> = {
+      entityName,
+      description,
+      isActive,
+    };
+    if (branchId !== undefined) updateData.branchId = branchId;
+
     const ledger = await prisma.subsidiaryLedger.update({
       where: { id },
-      data: {
-        entityName,
-        description,
-        isActive,
-      },
+      data: updateData,
     });
 
     return NextResponse.json(ledger);

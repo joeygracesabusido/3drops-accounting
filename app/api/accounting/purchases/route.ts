@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { supplierId, supplierName, date, dueDate, items, totalAmount, expenseAccountId, apAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage } = body;
+    const { supplierId, supplierName, date, dueDate, items, totalAmount, expenseAccountId, apAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, branchId } = body;
 
     if (!supplierId || !supplierName || !items || items.length === 0 || !expenseAccountId || !apAccountId) {
       return NextResponse.json({ error: 'Missing required fields: supplier, items, expense account, or AP account' }, { status: 400 });
@@ -38,6 +38,7 @@ export async function POST(request: Request) {
           supplierName,
           status: 'UNPAID',
           totalAmount,
+          branchId: branchId || undefined,
           items: {
             create: items.map((item: any) => ({
               description: item.description,
@@ -105,6 +106,7 @@ export async function POST(request: Request) {
           date: new Date(date),
           description: `Purchase Bill ${billNumber} - ${supplierName}`,
           reference: billNumber,
+          branchId: branchId || undefined,
           lines: {
             create: lines,
           },
@@ -186,7 +188,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { supplierId, supplierName, date, dueDate, items, totalAmount, expenseAccountId, apAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage } = body;
+    const { supplierId, supplierName, date, dueDate, items, totalAmount, expenseAccountId, apAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, branchId } = body;
 
     if (!supplierId || !supplierName || !items || items.length === 0 || !expenseAccountId || !apAccountId) {
       return NextResponse.json({ error: 'Missing required fields: supplier, items, expense account, or AP account' }, { status: 400 });
@@ -231,6 +233,7 @@ export async function PATCH(request: Request) {
           supplierId,
           supplierName,
           totalAmount,
+          ...(branchId !== undefined && { branchId }),
         },
       });
 
@@ -314,6 +317,7 @@ export async function PATCH(request: Request) {
           date: new Date(date),
           description: `Purchase Bill ${existingBill.billNumber} - ${supplierName}`,
           reference: existingBill.billNumber,
+          branchId: branchId || undefined,
           lines: {
             create: lines,
           },
@@ -418,9 +422,18 @@ export async function PUT(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const branchId = searchParams.get('branchId');
+
+    const where: any = {};
+    if (branchId) {
+      where.branchId = branchId;
+    }
+
     const bills = await prisma.purchaseBill.findMany({
+      where,
       include: { items: true },
       orderBy: { date: 'desc' },
     });

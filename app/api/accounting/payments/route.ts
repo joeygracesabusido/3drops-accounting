@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { billId, amount, paymentDate, referenceNumber, notes, cashAccountId } = body;
+    const { billId, amount, paymentDate, referenceNumber, notes, cashAccountId, branchId } = body;
 
     if (!billId || !amount || !paymentDate || !cashAccountId) {
       return NextResponse.json({ error: 'Missing required fields: billId, amount, paymentDate, or cashAccountId' }, { status: 400 });
@@ -66,6 +66,7 @@ export async function POST(request: Request) {
           referenceNumber: referenceNumber || null,
           notes: notes || null,
           cashAccountId,
+          branchId: branchId || undefined,
         },
       });
 
@@ -75,6 +76,7 @@ export async function POST(request: Request) {
           date: new Date(paymentDate),
           description: `Payment for Purchase Bill ${bill.billNumber}`,
           reference: referenceNumber || `PAY-${bill.billNumber}`,
+          branchId: branchId || undefined,
           lines: {
             create: [
               {
@@ -152,7 +154,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { amount, paymentDate, referenceNumber, notes, cashAccountId } = body;
+    const { amount, paymentDate, referenceNumber, notes, cashAccountId, branchId } = body;
 
     if (!amount || !paymentDate || !cashAccountId) {
       return NextResponse.json({ error: 'Missing required fields: amount, paymentDate, or cashAccountId' }, { status: 400 });
@@ -231,6 +233,7 @@ export async function PATCH(request: Request) {
           referenceNumber: referenceNumber || null,
           notes: notes || null,
           cashAccountId,
+          branchId: branchId || undefined,
         },
       });
 
@@ -240,6 +243,7 @@ export async function PATCH(request: Request) {
           date: new Date(paymentDate),
           description: `Payment for Purchase Bill ${existingPayment.bill.billNumber}`,
           reference: referenceNumber || `PAY-${existingPayment.bill.billNumber}`,
+          branchId: branchId || undefined,
           lines: {
             create: [
               {
@@ -402,6 +406,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const billId = searchParams.get('billId');
     const reference = searchParams.get('reference');
+    const branchId = searchParams.get('branchId');
 
     const where: any = {};
     if (billId) {
@@ -409,6 +414,9 @@ export async function GET(request: Request) {
     }
     if (reference) {
       where.referenceNumber = { contains: reference, mode: 'insensitive' };
+    }
+    if (branchId) {
+      where.branchId = branchId;
     }
 
     const payments = await prisma.payment.findMany({
@@ -439,7 +447,7 @@ export async function GET(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
-    const { supplierName, paymentDate, referenceNumber, notes, cashAccountId } = body;
+    const { supplierName, paymentDate, referenceNumber, notes, cashAccountId, branchId } = body;
 
     if (!supplierName || !paymentDate || !cashAccountId) {
       return NextResponse.json({ error: 'Missing required fields: supplierName, paymentDate, or cashAccountId' }, { status: 400 });
@@ -495,6 +503,7 @@ export async function PUT(request: Request) {
               referenceNumber: payRef,
               notes: notes || `Full payment for ${bill.billNumber}`,
               cashAccountId,
+              branchId: branchId || undefined,
             },
           });
 
@@ -503,6 +512,7 @@ export async function PUT(request: Request) {
               date: new Date(paymentDate),
               description: `Payment for Purchase Bill ${bill.billNumber}`,
               reference: payRef,
+              branchId: branchId || undefined,
               lines: {
                 create: [
                   { accountId: apAccountId, debit: remainingBalance, credit: 0, memo: `Payment for Bill ${bill.billNumber}` },

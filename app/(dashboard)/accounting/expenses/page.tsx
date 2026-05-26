@@ -19,6 +19,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 interface ExpenseItem {
   id?: string;
@@ -36,7 +38,19 @@ interface Expense {
   status: string;
   totalAmount: number;
   items: ExpenseItem[];
+  branchId?: string;
   journalEntryId?: string;
+  journalEntry?: {
+    id: string;
+    lines: Array<{
+      id: string;
+      accountId: string;
+      debit: number;
+      credit: number;
+      memo?: string;
+      account?: { id: string; code: string; name: string };
+    }>;
+  };
 }
 
 interface Account {
@@ -47,6 +61,7 @@ interface Account {
 }
 
 export default function ExpensesPage() {
+  const { selectedBranch, branches } = useBranch();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [cashAccounts, setCashAccounts] = useState<Account[]>([]);
@@ -70,6 +85,7 @@ export default function ExpensesPage() {
     noInputVat: false,
     ewtAccountId: '',
     ewtPercentage: '',
+    branchId: '',
     items: [{ description: '', amount: 0, accountId: '' }]
   });
 
@@ -106,6 +122,7 @@ export default function ExpensesPage() {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
       if (statusFilter !== 'ALL') params.append('status', statusFilter);
+      if (selectedBranch) params.append('branchId', selectedBranch.id);
 
       const res = await fetch(`/api/accounting/expenses?${params.toString()}`);
       const data = await res.json();
@@ -129,7 +146,13 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     fetchExpenses();
-  }, [fetchExpenses]);
+  }, [fetchExpenses, selectedBranch]);
+
+  useEffect(() => {
+    if (isDialogOpen && selectedBranch) {
+      setFormData(prev => ({ ...prev, branchId: selectedBranch.id }));
+    }
+  }, [isDialogOpen, selectedBranch]);
 
   const addItem = () => {
     setFormData(prev => ({
@@ -165,15 +188,55 @@ export default function ExpensesPage() {
 
   const openEdit = (expense: Expense) => {
     setEditingExpense(expense);
+
+    // Extract cash account, VAT, and EWT settings from journal entry lines
+    let cashAccountId = cashAccounts[0]?.id || ''
+    let ewtAccountId = ''
+    let ewtPercentage = ''
+    let isVatInclusive = false
+    let noInputVat = true
+    const itemSum = expense.items.reduce((s, i) => s + i.amount, 0)
+
+    if (expense.journalEntry?.lines) {
+      const lines = expense.journalEntry.lines
+      const creditLines = lines.filter(l => l.credit > 0)
+
+      // Find EWT lines (account code starting with 234)
+      const ewtLine = creditLines.find(l => l.account?.code?.startsWith('234'))
+      if (ewtLine) {
+        ewtAccountId = ewtLine.accountId
+        const ewtRate = itemSum > 0 ? (ewtLine.credit / itemSum) * 100 : 0
+        ewtPercentage = ewtRate > 0 ? ewtRate.toFixed(2) : ''
+      }
+
+      // Find cash account (the largest non-EWT credit line)
+      const nonEwtCredit = creditLines.find(l => !l.account?.code?.startsWith('234'))
+      if (nonEwtCredit) {
+        cashAccountId = nonEwtCredit.accountId
+      }
+
+      // Check if Input VAT line exists
+      const vatLine = lines.find(l => l.account?.code === '2320' && l.debit > 0)
+      if (vatLine) {
+        noInputVat = false
+        // If Input VAT was recorded, check if items are VAT-inclusive
+        if (itemSum > 0) {
+          const vatRate = vatLine.debit / itemSum
+          isVatInclusive = vatRate < 0.12 && vatRate > 0
+        }
+      }
+    }
+
     setFormData({
       payee: expense.payee,
       date: new Date(expense.date).toISOString().split('T')[0],
       description: expense.description || '',
-      cashAccountId: cashAccounts[0]?.id || '',
-      isVatInclusive: false,
-      noInputVat: false,
-      ewtAccountId: '',
-      ewtPercentage: '',
+      cashAccountId,
+      isVatInclusive,
+      noInputVat,
+      ewtAccountId,
+      ewtPercentage,
+      branchId: expense.branchId || selectedBranch?.id || '',
       items: expense.items.map(item => ({
         description: item.description,
         amount: item.amount,
@@ -205,7 +268,8 @@ body: JSON.stringify({
           totalAmount: calculateTotal(),
           netAmount: netOfVat,
           vatAmount,
-          ewtAmount
+          ewtAmount,
+          branchId: formData.branchId || selectedBranch?.id || ''
         })
       });
 
@@ -226,6 +290,7 @@ body: JSON.stringify({
         noInputVat: false,
         ewtAccountId: '',
         ewtPercentage: '',
+        branchId: selectedBranch?.id || '',
         items: [{ description: '', amount: 0, accountId: '' }]
       });
       fetchExpenses();
@@ -249,12 +314,13 @@ body: JSON.stringify({
       const res = await fetch('/api/accounting/expenses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({
+ body: JSON.stringify({
           ...formData,
           totalAmount: calculateTotal(),
           netAmount: netOfVat,
           vatAmount,
-          ewtAmount
+          ewtAmount,
+          branchId: formData.branchId || selectedBranch?.id || ''
         })
       });
 
@@ -271,6 +337,7 @@ body: JSON.stringify({
         noInputVat: false,
         ewtAccountId: '',
         ewtPercentage: '',
+        branchId: selectedBranch?.id || '',
         items: [{ description: '', amount: 0, accountId: '' }]
       });
       fetchExpenses();
@@ -329,7 +396,9 @@ body: JSON.stringify({
           <h1 className="text-3xl font-bold tracking-tight">Expenses</h1>
           <p className="text-muted-foreground">Manage and track operational expenses</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <div className="flex items-center gap-4">
+          <BranchSelector />
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="w-4 h-4" /> New Expense
@@ -448,6 +517,12 @@ body: JSON.stringify({
                 <Input type="number" step="0.01" value={formData.ewtPercentage}
                   onChange={e => setFormData({...formData, ewtPercentage: e.target.value})} placeholder="0" />
               </div>
+              {branches.length > 0 && (
+              <div className="space-y-2">
+                <Label>Branch</Label>
+                <Input value={branches.find(b => b.id === formData.branchId)?.name || ''} disabled />
+              </div>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -529,6 +604,7 @@ body: JSON.stringify({
             </div>
           </DialogContent>
         </Dialog>
+        </div>
 
         {/* Edit Expense Dialog */}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
@@ -645,6 +721,12 @@ body: JSON.stringify({
                 <Input type="number" step="0.01" value={formData.ewtPercentage}
                   onChange={e => setFormData({...formData, ewtPercentage: e.target.value})} placeholder="0" />
               </div>
+              {branches.length > 0 && (
+              <div className="space-y-2">
+                <Label>Branch</Label>
+                <Input value={branches.find(b => b.id === formData.branchId)?.name || ''} disabled />
+              </div>
+              )}
             </div>
 
             <div className="space-y-4">

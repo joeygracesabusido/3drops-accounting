@@ -5,10 +5,7 @@ const nextConfig = {
   images: {
     domains: ['lh3.googleusercontent.com'],
   },
-  experimental: {
-    workerThreads: false,
-    cpus: 1,
-  },
+
   webpack: (config, { isServer }) => {
     // face-api.js uses Node.js built-ins that don't exist in the browser.
     // Tell webpack to provide empty shims for them on the client side.

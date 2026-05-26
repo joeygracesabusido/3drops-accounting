@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { calculateDepreciation } from '@/lib/depreciation';
 import * as XLSX from 'xlsx';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 interface Asset {
   id: string;
@@ -61,9 +63,10 @@ export default function PPEReportsPage() {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
+  const { selectedBranch } = useBranch();
 
   useEffect(() => {
-    fetch('/api/assets?status=ACTIVE')
+    fetch(`/api/assets?status=ACTIVE${selectedBranch ? `&branchId=${selectedBranch.id}` : ''}`)
       .then(res => res.json())
       .then(data => {
         setAssets(data || []);
@@ -73,7 +76,7 @@ export default function PPEReportsPage() {
         setAssets([]);
         setLoading(false);
       });
-  }, []);
+  }, [selectedBranch]);
 
   const groupedAssets = useMemo((): CategoryGroup[] => {
     const groups: Record<string, Record<string, CombinedAsset>> = {};
@@ -344,6 +347,7 @@ export default function PPEReportsPage() {
           <p className="text-muted-foreground">Property, Plant and Equipment Schedule</p>
         </div>
         <div className="flex items-center gap-2">
+          <BranchSelector />
           <Select value={selectedYear.toString()} onValueChange={v => setSelectedYear(parseInt(v))}>
             <SelectTrigger className="w-[120px]">
               <SelectValue placeholder="Year" />

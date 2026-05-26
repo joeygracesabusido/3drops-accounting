@@ -7,6 +7,8 @@ export async function GET(
 ) {
   try {
     const { id } = params;
+    const { searchParams } = new URL(request.url);
+    const branchId = searchParams.get('branchId');
 
     const account = await prisma.account.findUnique({
       where: { id },
@@ -22,8 +24,15 @@ export async function GET(
       return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
+    const where: { accountId: string; entry?: { branchId: string } } = {
+      accountId: id,
+    };
+    if (branchId) {
+      where.entry = { branchId };
+    }
+
     const lines = await prisma.journalLine.findMany({
-      where: { accountId: id },
+      where,
       include: {
         entry: {
           select: {

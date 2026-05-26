@@ -6,6 +6,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
+    const branchId = searchParams.get('branchId');
 
     if (id) {
       // Get single customer with transactions
@@ -32,6 +33,7 @@ export async function GET(request: Request) {
       where: {
         entityType: 'CUSTOMER',
         isActive: true,
+        ...(branchId ? { branchId } : {}),
       },
       include: {
         account: true,
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
       tin,
       creditLimit,
       paymentTerms,
+      branchId,
     } = body;
 
     // Validate required fields
@@ -109,6 +112,7 @@ export async function POST(request: Request) {
         creditTotal: 0,
         balance: 0,
         isActive: true,
+        branchId: branchId || undefined,
         // Store additional info in description
         ...(email || phone || address || tin || creditLimit || paymentTerms ? {
           description: [description, `Email: ${email}`, `Phone: ${phone}`, `Address: ${address}`, `TIN: ${tin}`, `Credit Limit: ${creditLimit}`, `Payment Terms: ${paymentTerms}`].filter(Boolean).join('\n'),
@@ -130,7 +134,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, entityName, description, email, phone, address, tin, creditLimit, paymentTerms, isActive } = body;
+    const { id, entityName, description, email, phone, address, tin, creditLimit, paymentTerms, isActive, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Customer ID is required' }, { status: 400 });
@@ -155,13 +159,16 @@ export async function PATCH(request: Request) {
     if (creditLimit) descParts.push(`Credit Limit: ${creditLimit}`);
     if (paymentTerms) descParts.push(`Payment Terms: ${paymentTerms}`);
 
+    const updateData: Record<string, unknown> = {
+      entityName,
+      description: descParts.filter(Boolean).join('\n'),
+      isActive: isActive !== undefined ? isActive : currentCustomer.isActive,
+    };
+    if (branchId !== undefined) updateData.branchId = branchId;
+
     const customer = await prisma.subsidiaryLedger.update({
       where: { id },
-      data: {
-        entityName,
-        description: descParts.filter(Boolean).join('\n'),
-        isActive: isActive !== undefined ? isActive : currentCustomer.isActive,
-      },
+      data: updateData,
       include: {
         account: true,
       },

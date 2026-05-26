@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useBranch } from '@/lib/branch-context';
 
 export default function AddAssetPage() {
   const router = useRouter();
@@ -16,6 +17,7 @@ export default function AddAssetPage() {
     name: string;
   }[]>([]);
   const [loading, setLoading] = useState(false);
+  const { selectedBranch } = useBranch();
 
   useEffect(() => {
     fetch('/api/assets/categories')
@@ -37,6 +39,7 @@ export default function AddAssetPage() {
     depreciationMethod: 'STRAIGHT_LINE',
     location: '',
     quantity: '1',
+    branchId: '',
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -47,7 +50,10 @@ export default function AddAssetPage() {
       const res = await fetch('/api/assets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          branchId: formData.branchId || selectedBranch?.id || null,
+        }),
       });
 
       if (res.ok) {

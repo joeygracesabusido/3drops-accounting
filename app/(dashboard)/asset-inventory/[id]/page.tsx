@@ -8,9 +8,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { calculateDepreciation } from '@/lib/depreciation';
 import { ArrowLeft, Pencil } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
 
 export default function AssetDetailsPage({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const { selectedBranch } = useBranch();
   const [asset, setAsset] = useState<{
     id: string;
     assetCode: string;
@@ -40,13 +42,13 @@ export default function AssetDetailsPage({ params }: { params: { id: string } })
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/assets/${params.id}`)
+    fetch(`/api/assets/${params.id}${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`)
       .then(res => res.json())
       .then(data => {
         setAsset(data);
         setLoading(false);
       });
-  }, [params.id]);
+  }, [params.id, selectedBranch]);
 
   if (loading) return <div className="p-8 text-center text-lg">Loading...</div>;
   if (!asset || asset.error) return <div className="p-8 text-center text-lg text-red-500">Asset not found</div>;

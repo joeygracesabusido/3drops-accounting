@@ -6,15 +6,20 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, CheckCircle2, XCircle, Download } from 'lucide-react';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 export default function ReconciliationPage() {
+  const { selectedBranch } = useBranch();
   const [reconciliations, setReconciliations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   async function fetchReconciliation() {
     setLoading(true);
     try {
-      const res = await fetch('/api/accounting/subsidiary-transactions', {
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      const res = await fetch(`/api/accounting/subsidiary-transactions?${params}`, {
         method: 'DELETE', // Using DELETE for reconciliation check
       });
       const data = await res.json();
@@ -35,7 +40,8 @@ export default function ReconciliationPage() {
             Verify General Ledger balances match Subsidiary Ledger totals (GAAP compliance)
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <BranchSelector />
           <Button onClick={fetchReconciliation} disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh

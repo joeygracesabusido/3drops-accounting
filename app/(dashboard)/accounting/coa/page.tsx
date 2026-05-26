@@ -11,6 +11,8 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Plus, Search, FolderTree, Pencil, Database, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useBranch } from '@/lib/branch-context';
+import { BranchSelector } from '@/components/branch-selector';
 
 export default function ChartOfAccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -32,15 +34,18 @@ export default function ChartOfAccountsPage() {
     subsidiaryType: '',
     beginningBalance: 0,
   });
+  const { selectedBranch } = useBranch();
 
   useEffect(() => {
     fetchAccounts();
-  }, []);
+  }, [selectedBranch]);
 
   async function fetchAccounts() {
     setLoading(true);
     try {
-      const res = await fetch('/api/accounting/accounts');
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      const res = await fetch(`/api/accounting/accounts?${params}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setAccounts(data);
@@ -193,6 +198,7 @@ export default function ChartOfAccountsPage() {
           <p className="text-muted-foreground">Manage your organization&apos;s financial account structure</p>
         </div>
         <div className="flex items-center gap-2">
+          <BranchSelector />
           <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
             <DialogTrigger asChild>
               <Button className="flex items-center gap-2">
