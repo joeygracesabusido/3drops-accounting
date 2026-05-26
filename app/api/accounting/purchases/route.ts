@@ -233,7 +233,7 @@ export async function PATCH(request: Request) {
           supplierId,
           supplierName,
           totalAmount,
-          ...(branchId !== undefined && { branchId }),
+          branchId: branchId || undefined,
         },
       });
 

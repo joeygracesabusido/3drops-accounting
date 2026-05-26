@@ -192,7 +192,7 @@ export async function PUT(request: Request) {
           date: new Date(date),
           description,
           reference: finalReference,
-          ...(branchId !== undefined && { branchId }),
+          branchId: branchId || undefined,
           lines: {
             create: lines.map(line => ({
               accountId: line.accountId,
