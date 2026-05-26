@@ -107,28 +107,51 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const reference = searchParams.get('reference');
     const branchId = searchParams.get('branchId');
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10)));
+    const search = searchParams.get('search');
 
     const where: Prisma.JournalEntryWhereInput = {};
     if (reference) {
       where.reference = { contains: reference, mode: 'insensitive' };
     }
+    if (search) {
+      where.OR = [
+        { description: { contains: search, mode: 'insensitive' } },
+        { reference: { contains: search, mode: 'insensitive' } },
+      ];
+    }
     if (branchId) {
       where.branchId = branchId;
     }
 
-    const entries = await prisma.journalEntry.findMany({
-      where,
-      include: { 
-        lines: { 
-          include: { 
-            account: true,
-            subsidiaryLedger: true
+    const [entries, total] = await Promise.all([
+      prisma.journalEntry.findMany({
+        where,
+        include: { 
+          lines: { 
+            include: { 
+              account: true,
+              subsidiaryLedger: true
+            } 
           } 
-        } 
+        },
+        orderBy: { date: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.journalEntry.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      entries,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize),
       },
-      orderBy: { date: 'desc' },
     });
-    return NextResponse.json(entries);
   } catch (error) {
     console.error('Error fetching journal entries:', error);
     return NextResponse.json({ error: 'Failed to fetch entries' }, { status: 500 });

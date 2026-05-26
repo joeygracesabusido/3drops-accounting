@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Trash2, Scale, FileText, Search, Edit } from 'lucide-react';
+import { Plus, Trash2, Scale, FileText, Search, Edit, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
 
@@ -31,6 +31,11 @@ export default function JournalPage() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [viewEntry, setViewEntry] = useState<any>(null);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -48,16 +53,21 @@ export default function JournalPage() {
     try {
       const params = new URLSearchParams();
       if (selectedBranch) params.set('branchId', selectedBranch.id);
+      params.set('page', page.toString());
+      params.set('pageSize', pageSize.toString());
+      if (debouncedSearch) params.set('search', debouncedSearch);
 
       const [entriesRes, accountsRes, subsidiaryRes] = await Promise.all([
         fetch(`/api/accounting/journal?${params}`),
         fetch(`/api/accounting/accounts?${params}`),
         fetch(`/api/accounting/subsidiary-ledgers?${params}`),
       ]);
-      const entriesData = await entriesRes.json();
+      const entriesJson = await entriesRes.json();
       const accountsData = await accountsRes.json();
       const subsidiaryData = await subsidiaryRes.json();
-      setEntries(entriesData);
+      setEntries(entriesJson.entries || []);
+      setTotal(entriesJson.pagination?.total || 0);
+      setTotalPages(entriesJson.pagination?.totalPages || 1);
       setAccounts(accountsData);
       setSubsidiaryLedgers(subsidiaryData);
     } catch (err) {
@@ -65,11 +75,24 @@ export default function JournalPage() {
     } finally {
       setLoading(false);
     }
+  }, [selectedBranch, page, pageSize, debouncedSearch]);
+
+  useEffect(() => {
+    setPage(1);
+    fetchData();
   }, [selectedBranch]);
 
   useEffect(() => {
     fetchData();
-  }, [selectedBranch, fetchData]);
+  }, [page, debouncedSearch, fetchData]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const addLine = () => {
     setFormData({
@@ -166,10 +189,7 @@ export default function JournalPage() {
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01 && totalDebit > 0;
   const hasAnyValue = formData.lines.some(l => l.debit || l.credit);
 
-  const filteredEntries = Array.isArray(entries) ? entries.filter(entry =>
-    (entry.description?.toLowerCase() || '').includes(search.toLowerCase()) ||
-    (entry.reference?.toLowerCase() || '').includes(search.toLowerCase())
-  ) : [];
+  const filteredEntries = entries;
 
   return (
     <div className="space-y-6">
@@ -487,6 +507,71 @@ export default function JournalPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {!loading && total > 0 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total} entries
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+            >
+              <ChevronsLeft className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setPage(p => p - 1)}
+              disabled={page === 1}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              let pageNum: number;
+              if (totalPages <= 5) {
+                pageNum = i + 1;
+              } else if (page <= 3) {
+                pageNum = i + 1;
+              } else if (page >= totalPages - 2) {
+                pageNum = totalPages - 4 + i;
+              } else {
+                pageNum = page - 2 + i;
+              }
+              return (
+                <Button
+                  key={pageNum}
+                  variant={page === pageNum ? 'default' : 'outline'}
+                  size="icon"
+                  onClick={() => setPage(pageNum)}
+                  className={page === pageNum ? 'bg-primary text-primary-foreground' : ''}
+                >
+                  {pageNum}
+                </Button>
+              );
+            })}
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setPage(p => p + 1)}
+              disabled={page === totalPages}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setPage(totalPages)}
+              disabled={page === totalPages}
+            >
+              <ChevronsRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
