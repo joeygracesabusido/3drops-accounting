@@ -212,8 +212,11 @@ export async function PATCH(request: Request) {
         where: { journalEntryId: existingPayment.journalEntryId || undefined },
       });
 
-      // 2. Delete old journal entry
+      // 2. Delete old journal entry - explicitly delete lines first
       if (existingPayment.journalEntryId) {
+        await tx.journalLine.deleteMany({
+          where: { entryId: existingPayment.journalEntryId },
+        });
         await tx.journalEntry.delete({
           where: { id: existingPayment.journalEntryId },
         });
@@ -370,8 +373,11 @@ export async function DELETE(request: Request) {
         where: { journalEntryId: existingPayment.journalEntryId || undefined },
       });
 
-      // 2. Delete old journal entry
+      // 2. Delete old journal entry - explicitly delete lines first
       if (existingPayment.journalEntryId) {
+        await tx.journalLine.deleteMany({
+          where: { entryId: existingPayment.journalEntryId },
+        });
         await tx.journalEntry.delete({
           where: { id: existingPayment.journalEntryId },
         });

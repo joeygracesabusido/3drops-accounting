@@ -166,6 +166,9 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Expense ID is required' }, { status: 400 });
     }
 
+    // Safeguard: treat empty string branchId as undefined (invalid ObjectId)
+    const safeBranchId = (branchId && branchId !== '') ? branchId : undefined;
+
     // Only status update - simple case
     if (status && !payee && !date && !items && !cashAccountId) {
       const result = await prisma.$transaction(async (tx) => {
@@ -226,8 +229,12 @@ export async function PATCH(request: Request) {
         throw new Error('Total amount does not match sum of items');
       }
 
-      // Delete old journal entry and create new one
+      // Explicitly delete journal lines first, then journal entry
+      // Cascade delete in MongoDB can be unreliable in serverless environments
       if (existingExpense.journalEntryId) {
+        await tx.journalLine.deleteMany({
+          where: { entryId: existingExpense.journalEntryId },
+        });
         await tx.journalEntry.delete({
           where: { id: existingExpense.journalEntryId },
         });
@@ -238,7 +245,7 @@ export async function PATCH(request: Request) {
           date: new Date(date || existingExpense.date),
           description: `Expense ${existingExpense.expenseNumber} - ${payee || existingExpense.payee}`,
           reference: existingExpense.expenseNumber,
-          branchId: branchId || undefined,
+          branchId: safeBranchId,
           lines: {
             create: [
               ...items.map((item: any) => ({
@@ -298,7 +305,7 @@ export async function PATCH(request: Request) {
           ...(date && { date: new Date(date) }),
           ...(payee && { payee }),
           ...(description !== undefined && { description }),
-          branchId: branchId || undefined,
+          branchId: safeBranchId,
           totalAmount: finalTotal,
           journalEntryId: journalEntry.id,
           items: {
@@ -318,8 +325,16 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Error updating expense:', error);
+    console.error('[Expenses PATCH] Error updating expense:', error);
+
+    // Distinguish between client validation errors and server errors
+    if (error instanceof Error && !('code' in error)) {
+      const message = error.message || 'Failed to update expense';
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
+    // Prisma / database errors are server-side (500)
     const message = error instanceof Error ? error.message : 'Failed to update expense';
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: `Server error: ${message}` }, { status: 500 });
   }
 }

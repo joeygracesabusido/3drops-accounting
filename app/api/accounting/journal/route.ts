@@ -273,8 +273,9 @@ export async function DELETE(request: Request) {
         }
       }
 
-      // Delete subsidiary transactions (cascade might not be enough if we need balance revert)
+      // Delete subsidiary transactions and journal lines explicitly for serverless reliability
       await tx.subsidiaryTransaction.deleteMany({ where: { journalEntryId: id } });
+      await tx.journalLine.deleteMany({ where: { entryId: id } });
       await tx.journalEntry.delete({ where: { id } });
     });
 

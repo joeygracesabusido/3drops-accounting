@@ -254,8 +254,11 @@ export async function PATCH(request: Request) {
         });
       }
 
-      // 3. Delete old journal entry (cascade will handle lines)
+      // 3. Delete old journal entry - explicitly delete lines first for serverless reliability
       if (existingBill.journalEntryId) {
+        await tx.journalLine.deleteMany({
+          where: { entryId: existingBill.journalEntryId },
+        });
         await tx.journalEntry.delete({
           where: { id: existingBill.journalEntryId },
         });
