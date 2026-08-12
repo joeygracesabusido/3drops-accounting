@@ -139,6 +139,7 @@ export async function GET(request: Request) {
       where,
       include: {
         items: true,
+        branch: true,
         journalEntry: {
           include: {
             lines: {

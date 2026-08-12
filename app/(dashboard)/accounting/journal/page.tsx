@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Trash2, Scale, FileText, Search, Edit, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Plus, Trash2, Scale, FileText, Search, Edit, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
 
@@ -36,6 +38,9 @@ export default function JournalPage() {
   const [pageSize] = useState(20);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [exportLimit, setExportLimit] = useState(200);
+  const [exporting, setExporting] = useState(false);
 
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -93,6 +98,73 @@ export default function JournalPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [search]);
+
+  const handleExport = async (limit: number | 'all') => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      params.set('export', 'true');
+      params.set('pageSize', (limit === 'all' ? 10000 : limit).toString());
+      if (debouncedSearch) params.set('search', debouncedSearch);
+
+      const res = await fetch(`/api/accounting/journal?${params}`);
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to export entries');
+        return;
+      }
+
+      const rows: any[] = [];
+      for (const entry of data.entries || []) {
+        for (const line of entry.lines || []) {
+          rows.push({
+            Date: new Date(entry.date).toLocaleDateString(),
+            Reference: entry.reference || '-',
+            Description: entry.description,
+            Branch: entry.branch?.name || '',
+            'Account Code': line.account?.code || '',
+            'Account Name': line.account?.name || '',
+            Subsidiary: line.subsidiaryLedger?.entityName || '',
+            Memo: line.memo || '',
+            Debit: Number(line.debit) || 0,
+            Credit: Number(line.credit) || 0,
+          });
+        }
+      }
+
+      const totalDebit = rows.reduce((sum, r) => sum + r.Debit, 0);
+      const totalCredit = rows.reduce((sum, r) => sum + r.Credit, 0);
+      rows.push({
+        Date: '',
+        Reference: '',
+        Description: 'TOTAL',
+        Branch: '',
+        'Account Code': '',
+        'Account Name': '',
+        Subsidiary: '',
+        Memo: '',
+        Debit: totalDebit,
+        Credit: totalCredit,
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 12 }, { wch: 14 }, { wch: 40 }, { wch: 16 },
+        { wch: 14 }, { wch: 30 }, { wch: 24 }, { wch: 24 },
+        { wch: 14 }, { wch: 14 },
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Journal Entries');
+      XLSX.writeFile(wb, `journal-export-${new Date().toISOString().split('T')[0]}.xlsx`);
+      setIsExportDialogOpen(false);
+    } catch (err) {
+      console.error('Error exporting journal:', err);
+      alert('Failed to export entries');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const addLine = () => {
     setFormData({
@@ -435,14 +507,35 @@ export default function JournalPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle>Journal History</CardTitle>
-          <div className="relative w-72">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by description or ref..."
-              className="pl-8"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="flex items-center gap-2" disabled={exporting}>
+                  <Download className="w-4 h-4" />
+                  {exporting ? 'Exporting...' : 'Export'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleExport('all')}>
+                  Export All
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport(200)}>
+                  Export Latest 200
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setExportLimit(200); setIsExportDialogOpen(true); }}>
+                  Export Custom...
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <div className="relative w-72">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by description or ref..."
+                className="pl-8"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -512,8 +605,7 @@ export default function JournalPage() {
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total} entries
-          </p>
-          <div className="flex items-center gap-2">
+          </p>          <div className="flex items-center gap-2">
             <Button
               variant="outline"
               size="icon"
@@ -572,6 +664,41 @@ export default function JournalPage() {
           </div>
         </div>
       )}
+
+      <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export Journal Entries</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label className="text-base">Number of entries to export</Label>
+              <Input
+                type="number"
+                min={1}
+                max={10000}
+                className="h-11 text-base"
+                value={exportLimit}
+                onChange={e => setExportLimit(Number(e.target.value))}
+              />
+              <p className="text-sm text-muted-foreground">
+                Exports the most recent {exportLimit || '...'} entries matching the current filters ({selectedBranch ? selectedBranch.name : 'all branches'}).
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-4">
+            <Button variant="outline" className="h-11 px-8" onClick={() => setIsExportDialogOpen(false)}>Cancel</Button>
+            <Button
+              className="h-11 px-8 font-bold"
+              disabled={!exportLimit || exportLimit < 1 || exporting}
+              onClick={() => handleExport(exportLimit)}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              {exporting ? 'Exporting...' : 'Export'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -107,8 +107,10 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const reference = searchParams.get('reference');
     const branchId = searchParams.get('branchId');
+    const isExport = searchParams.get('export') === 'true';
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
-    const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10)));
+    const maxPageSize = isExport ? 10000 : 100;
+    const pageSize = Math.min(maxPageSize, Math.max(1, parseInt(searchParams.get('pageSize') || '20', 10)));
     const search = searchParams.get('search');
 
     const where: Prisma.JournalEntryWhereInput = {};
@@ -134,7 +136,8 @@ export async function GET(request: Request) {
               account: true,
               subsidiaryLedger: true
             } 
-          } 
+          },
+          branch: true
         },
         orderBy: { date: 'desc' },
         skip: (page - 1) * pageSize,

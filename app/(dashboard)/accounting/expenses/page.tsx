@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Search, Filter, Trash2, Save, Edit,
   Calendar as CalendarIcon,
-  User, FileText, Eye
+  User, FileText, Eye, Download
 } from 'lucide-react';
 import {
   Table, TableHeader, TableRow, TableHead, TableBody, TableCell
@@ -12,6 +12,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter
 } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
 
@@ -39,6 +41,7 @@ interface Expense {
   totalAmount: number;
   items: ExpenseItem[];
   branchId?: string;
+  branch?: { id: string; name: string };
   journalEntryId?: string;
   journalEntry?: {
     id: string;
@@ -93,6 +96,11 @@ export default function ExpensesPage() {
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
+  // Export State
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [exportLimit, setExportLimit] = useState(200);
+  const [exporting, setExporting] = useState(false);
+
   const fetchInitialData = useCallback(async () => {
     try {
       const [accRes, vendorsRes] = await Promise.all([
@@ -143,6 +151,93 @@ export default function ExpensesPage() {
   useEffect(() => {
     fetchInitialData();
   }, [fetchInitialData]);
+
+  const handleExport = async (limit: number | 'all') => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (search) params.append('search', search);
+      if (statusFilter !== 'ALL') params.append('status', statusFilter);
+      if (selectedBranch) params.append('branchId', selectedBranch.id);
+
+      const res = await fetch(`/api/accounting/expenses?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data)) {
+        toast.error('Failed to export expenses');
+        return;
+      }
+
+      const capped = limit === 'all' ? data : data.slice(0, limit);
+
+      const rows: Record<string, string | number>[] = [];
+      for (const exp of capped) {
+        const description = `${exp.expenseNumber} - ${exp.payee}${exp.description ? `: ${exp.description}` : ''}`;
+        const lines = exp.journalEntry?.lines || [];
+        if (lines.length > 0) {
+          for (const line of lines) {
+            rows.push({
+              Date: new Date(exp.date).toLocaleDateString(),
+              Reference: exp.expenseNumber,
+              Description: description,
+              Branch: exp.branch?.name || '',
+              'Account Code': line.account?.code || '',
+              'Account Name': line.account?.name || '',
+              Subsidiary: '',
+              Memo: line.memo || '',
+              Debit: Number(line.debit) || 0,
+              Credit: Number(line.credit) || 0,
+            });
+          }
+        } else {
+          for (const item of exp.items || []) {
+            rows.push({
+              Date: new Date(exp.date).toLocaleDateString(),
+              Reference: exp.expenseNumber,
+              Description: description,
+              Branch: exp.branch?.name || '',
+              'Account Code': '',
+              'Account Name': '',
+              Subsidiary: '',
+              Memo: item.description || '',
+              Debit: Number(item.amount) || 0,
+              Credit: 0,
+            });
+          }
+        }
+      }
+
+      const totalDebit = rows.reduce((sum, r) => sum + (Number(r.Debit) || 0), 0);
+      const totalCredit = rows.reduce((sum, r) => sum + (Number(r.Credit) || 0), 0);
+      rows.push({
+        Date: '',
+        Reference: '',
+        Description: 'TOTAL',
+        Branch: '',
+        'Account Code': '',
+        'Account Name': '',
+        Subsidiary: '',
+        Memo: '',
+        Debit: totalDebit,
+        Credit: totalCredit,
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 12 }, { wch: 14 }, { wch: 40 }, { wch: 16 },
+        { wch: 14 }, { wch: 30 }, { wch: 24 }, { wch: 24 },
+        { wch: 14 }, { wch: 14 },
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Expenses');
+      XLSX.writeFile(wb, `expense-export-${new Date().toISOString().split('T')[0]}.xlsx`);
+      setIsExportDialogOpen(false);
+    } catch {
+      console.error('Error exporting expenses');
+      toast.error('Failed to export expenses');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     fetchExpenses();
@@ -793,6 +888,25 @@ body: JSON.stringify({
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
           <CardTitle>Expense History</CardTitle>
           <div className="flex items-center gap-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="flex items-center gap-2" disabled={exporting}>
+                  <Download className="w-4 h-4" />
+                  {exporting ? 'Exporting...' : 'Export'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleExport('all')}>
+                  Export All
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport(200)}>
+                  Export Latest 200
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setExportLimit(200); setIsExportDialogOpen(true); }}>
+                  Export Custom...
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted-foreground" />
               <Input
@@ -967,6 +1081,41 @@ body: JSON.stringify({
                 setIsDetailsOpen(false);
               }}>Approve Expense</Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Export Expenses</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label className="text-base">Number of expenses to export</Label>
+              <Input
+                type="number"
+                min={1}
+                max={10000}
+                className="h-11 text-base"
+                value={exportLimit}
+                onChange={e => setExportLimit(Number(e.target.value))}
+              />
+              <p className="text-sm text-muted-foreground">
+                Exports the most recent {exportLimit || '...'} expenses matching the current filters ({selectedBranch ? selectedBranch.name : 'all branches'}).
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-4">
+            <Button variant="outline" className="h-11 px-8" onClick={() => setIsExportDialogOpen(false)}>Cancel</Button>
+            <Button
+              className="h-11 px-8 font-bold"
+              disabled={!exportLimit || exportLimit < 1 || exporting}
+              onClick={() => handleExport(exportLimit)}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              {exporting ? 'Exporting...' : 'Export'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
