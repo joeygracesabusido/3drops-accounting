@@ -10,11 +10,20 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const branchId = searchParams.get('branchId');
+    const endDate = searchParams.get('endDate');
+
+    const dateFilter: { lte?: Date } = {};
+    if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
+    }
 
     let entryIds: string[] | undefined;
-    if (branchId) {
+    if (branchId || Object.keys(dateFilter).length > 0) {
       const entries = await prisma.journalEntry.findMany({
-        where: { branchId },
+        where: {
+          branchId: branchId || undefined,
+          date: Object.keys(dateFilter).length > 0 ? dateFilter : undefined,
+        },
         select: { id: true },
       });
       entryIds = entries.map(e => e.id);
@@ -40,7 +49,7 @@ export async function GET(request: Request) {
       let creditBalance = 0;
 
       const net = totalDebit - totalCredit;
-      
+
       if (account.type === 'ASSET' || account.type === 'EXPENSE') {
         if (net >= 0) debitBalance = net;
         else creditBalance = Math.abs(net);
