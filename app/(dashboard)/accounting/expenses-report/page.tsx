@@ -112,7 +112,7 @@ export default function ExpensesReportPage() {
     });
 
     rows.push([]);
-    rows.push(['', 'GRAND TOTALS', grandDebit, grandCredit, grandDebit - grandCredit]);
+    rows.push(['', 'GRAND TOTALS', grandDebit, grandCredit, grandDebit]);
     rows.push([]);
     rows.push([]);
 
@@ -277,8 +277,11 @@ export default function ExpensesReportPage() {
                       <TableCell className="text-right font-bold font-mono py-4 border-t-2">
                         ₱{(data?.grandTotalCredit ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-bold font-mono py-4 border-t-2">
-                        ₱{(data?.grandTotalBalance ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                      <TableCell
+                        className="text-right font-bold font-mono py-4 border-t-2 cursor-help"
+                        title="Sum of debits only (credits shown for reference)"
+                      >
+                        ₱{(data?.grandTotalDebit ?? 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
                   )}
