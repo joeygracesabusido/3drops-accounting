@@ -53,11 +53,18 @@ export default function ReportsPage() {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const { selectedBranch } = useBranch();
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
     try {
-      const url = `/api/accounting/reports/${activeReport}${selectedBranch ? `?branchId=${selectedBranch.id}` : ''}`;
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      const qs = params.toString();
+      const url = `/api/accounting/reports/${activeReport}${qs ? `?${qs}` : ''}`;
       const res = await fetch(url);
       const json = await res.json();
       setData(json);
@@ -66,11 +73,16 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeReport, selectedBranch]);
+  }, [activeReport, selectedBranch, startDate, endDate]);
 
   useEffect(() => {
     fetchReport();
   }, [fetchReport]);
+
+  const formatDate = (iso: string) =>
+    new Date(`${iso}T00:00:00`).toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const todayLabel = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
 
   return (
     <div className="space-y-6">
@@ -88,20 +100,36 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <div className="flex justify-between items-center bg-white p-4 rounded-lg border shadow-sm">
+      <div className="flex flex-wrap items-center gap-4 bg-white p-4 rounded-lg border shadow-sm">
         <div className="flex items-center gap-4">
           <label className="font-medium text-sm">Select Report Type:</label>
-          <select 
-            value={activeReport} 
+          <select
+            value={activeReport}
             onChange={(e) => setActiveReport(e.target.value)}
             className="flex h-10 w-64 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
           >
             <option value="trial-balance">Trial Balance</option>
-            <option value="income-statement">Income Statement (Profit & Loss)</option>
+            <option value="income-statement">Income Statement (Profit &amp; Loss)</option>
             <option value="balance-sheet">Balance Sheet (Financial Position)</option>
           </select>
         </div>
         <div className="flex items-center gap-2">
+          <label className="font-medium text-sm">From:</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          />
+          <label className="font-medium text-sm">To:</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+          />
+        </div>
+        <div className="flex items-center gap-2 ml-auto">
           <Button variant="outline" onClick={fetchReport} disabled={loading} className="flex items-center gap-2">
             <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -117,7 +145,7 @@ export default function ReportsPage() {
         <Card>
           <CardHeader className="text-center border-b pb-6">
             <CardTitle className="text-2xl uppercase tracking-wider">Trial Balance</CardTitle>
-            <p className="text-sm text-muted-foreground">As of {new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+            <p className="text-sm text-muted-foreground">As of {endDate ? formatDate(endDate) : todayLabel}</p>
           </CardHeader>
           <CardContent className="pt-6">
             {loading ? (
@@ -182,7 +210,11 @@ export default function ReportsPage() {
         <Card className="max-w-4xl mx-auto">
           <CardHeader className="text-center border-b pb-6">
             <CardTitle className="text-2xl uppercase tracking-wider">Income Statement</CardTitle>
-            <p className="text-sm text-muted-foreground italic">For the period ended {new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+            <p className="text-sm text-muted-foreground italic">
+              {startDate
+                ? `For the period ${formatDate(startDate)} to ${endDate ? formatDate(endDate) : todayLabel}`
+                : `For the period ended ${endDate ? formatDate(endDate) : todayLabel}`}
+            </p>
           </CardHeader>
           <CardContent className="pt-8 px-12">
             {loading ? (
@@ -252,7 +284,7 @@ export default function ReportsPage() {
         <Card className="max-w-5xl mx-auto">
           <CardHeader className="text-center border-b pb-6">
             <CardTitle className="text-2xl uppercase tracking-wider">Statement of Financial Position</CardTitle>
-            <p className="text-sm text-muted-foreground italic">As of {new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+            <p className="text-sm text-muted-foreground italic">As of {endDate ? formatDate(endDate) : todayLabel}</p>
           </CardHeader>
           <CardContent className="pt-8">
             {loading ? (
