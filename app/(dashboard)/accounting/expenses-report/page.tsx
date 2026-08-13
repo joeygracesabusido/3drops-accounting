@@ -123,7 +123,7 @@ export default function ExpensesReportPage() {
       account.entries.forEach((entry) => {
         rows.push([
           new Date(entry.date).toLocaleDateString('en-PH'),
-          entry.reference,
+          entry.reference ?? '',
           entry.description,
           entry.debit || '',
           entry.credit || '',
