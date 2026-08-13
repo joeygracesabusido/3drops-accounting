@@ -23,11 +23,24 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const branchId = searchParams.get('branchId');
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+
+    const dateFilter: { gte?: Date; lte?: Date } = {};
+    if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      dateFilter.gte = new Date(`${startDate}T00:00:00.000Z`);
+    }
+    if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
+    }
 
     let entryIds: string[] | undefined;
-    if (branchId) {
+    if (branchId || Object.keys(dateFilter).length > 0) {
       const entries = await prisma.journalEntry.findMany({
-        where: { branchId },
+        where: {
+          branchId: branchId || undefined,
+          date: Object.keys(dateFilter).length > 0 ? dateFilter : undefined,
+        },
         select: { id: true },
       });
       entryIds = entries.map(e => e.id);
@@ -40,9 +53,11 @@ export async function GET(request: Request) {
           { type: 'EXPENSE' }
         ]
       },
-      include: { lines: entryIds ? {
-        where: { entryId: { in: entryIds } }
-      } : true },
+      include: {
+        lines: entryIds ? {
+          where: { entryId: { in: entryIds } }
+        } : true,
+      },
       orderBy: { code: 'asc' },
     });
 
@@ -57,7 +72,7 @@ export async function GET(request: Request) {
     accounts.forEach(account => {
       const totalDebit = account.lines.reduce((sum, line) => sum + line.debit, 0);
       const totalCredit = account.lines.reduce((sum, line) => sum + line.credit, 0);
-      
+
       let balance = 0;
       if (account.type === 'REVENUE') {
         balance = totalCredit - totalDebit; // Revenue increases with credit
