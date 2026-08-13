@@ -12,7 +12,7 @@ import { BranchSelector } from '@/components/branch-selector';
 
 interface ExpenseReportItem {
   date: string;
-  reference: string;
+  reference: string | null;
   description: string;
   accountCode: string;
   accountName: string;

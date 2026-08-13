@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma';
 
 interface ExpenseReportItem {
   date: string;
-  reference: string;
+  reference: string | null;
   description: string;
   accountCode: string;
   accountName: string;
