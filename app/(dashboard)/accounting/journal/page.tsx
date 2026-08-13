@@ -293,11 +293,11 @@ export default function JournalPage() {
               New Entry
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-6xl">
+          <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{editingId ? 'Edit Journal Entry' : 'Post Journal Entry'}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-6 pt-4 text-lg">
+            <form onSubmit={handleSubmit} className="space-y-6 pt-4 text-lg overflow-y-auto flex-1 min-h-0">
               <div className="grid grid-cols-3 gap-6">
                 <div className="space-y-2">
                   <Label className="text-base">Date</Label>
@@ -437,12 +437,12 @@ export default function JournalPage() {
       </div>
 
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-6xl">
+        <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-2xl">View Journal Entry</DialogTitle>
           </DialogHeader>
           {viewEntry && (
-            <div className="space-y-6 pt-4">
+            <div className="space-y-6 pt-4 overflow-y-auto flex-1 min-h-0">
               <div className="grid grid-cols-3 gap-6 bg-muted/50 p-6 rounded-lg">
                 <div>
                   <p className="text-base text-muted-foreground mb-1">Date</p>
