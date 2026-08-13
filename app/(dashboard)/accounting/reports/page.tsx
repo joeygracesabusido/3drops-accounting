@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Download, RefreshCcw } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
 
@@ -84,6 +85,105 @@ export default function ReportsPage() {
 
   const todayLabel = new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' });
 
+  const exportToExcel = () => {
+    if (!data) return;
+
+    const wb = XLSX.utils.book_new();
+    const today = new Date().toISOString().split('T')[0];
+    let filename = '';
+
+    if (activeReport === 'trial-balance') {
+      const rows: (string | number)[][] = [
+        ['Trial Balance'],
+        [`As of ${endDate ? formatDate(endDate) : todayLabel}`],
+        [],
+        ['Account Code', 'Account Name', 'Debit (₱)', 'Credit (₱)'],
+      ];
+
+      if (data.data && data.data.length > 0) {
+        data.data.forEach((acc) => {
+          rows.push([
+            acc.code,
+            acc.name,
+            acc.totalDebit > 0 ? acc.totalDebit : '',
+            acc.totalCredit > 0 ? acc.totalCredit : '',
+          ]);
+        });
+        rows.push([]);
+        rows.push(['', 'GRAND TOTALS', data.grandTotalDebit ?? 0, data.grandTotalCredit ?? 0]);
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'Trial Balance');
+      filename = `trial-balance-${today}.xlsx`;
+
+    } else if (activeReport === 'income-statement') {
+      const periodText = startDate
+        ? `For the period ${formatDate(startDate)} to ${endDate ? formatDate(endDate) : todayLabel}`
+        : `For the period ended ${endDate ? formatDate(endDate) : todayLabel}`;
+
+      const rows: (string | number)[][] = [
+        ['Income Statement'],
+        [periodText],
+        [],
+        ['REVENUES'],
+        ['Account Name', 'Amount'],
+      ];
+
+      if (data.revenue && data.revenue.length > 0) {
+        data.revenue.forEach((rev) => {
+          rows.push([rev.name, rev.balance]);
+        });
+      }
+      rows.push(['TOTAL REVENUES', data.totalRevenue ?? 0]);
+      rows.push([]);
+      rows.push(['EXPENSES']);
+      rows.push(['Account Name', 'Amount']);
+
+      if (data.expenses && data.expenses.length > 0) {
+        data.expenses.forEach((exp) => {
+          rows.push([exp.name, exp.balance]);
+        });
+      }
+      rows.push(['TOTAL EXPENSES', data.totalExpenses ?? 0]);
+      rows.push([]);
+      rows.push(['NET INCOME / (LOSS)', data.netIncome ?? 0]);
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'Income Statement');
+      filename = `income-statement-${today}.xlsx`;
+
+    } else if (activeReport === 'balance-sheet') {
+      const rows: (string | number)[][] = [
+        ['Statement of Financial Position'],
+        [`As of ${endDate ? formatDate(endDate) : todayLabel}`],
+        [],
+        ['ASSETS', 'Amount', 'LIABILITIES & EQUITY', 'Amount'],
+      ];
+
+      const maxLen = Math.max(data.assets?.length ?? 0, data.liabilities?.length ?? 0, data.equity?.length ?? 0);
+      for (let i = 0; i < maxLen; i++) {
+        const assetName = data.assets?.[i]?.name ?? '';
+        const assetBal = data.assets?.[i]?.balance ?? '';
+        const liabName = data.liabilities?.[i]?.name ?? '';
+        const liabBal = data.liabilities?.[i]?.balance ?? '';
+        rows.push([assetName, assetBal, liabName, liabBal]);
+      }
+
+      rows.push([]);
+      rows.push(['TOTAL ASSETS', data.totalAssets ?? 0, '', '']);
+      rows.push(['', '', 'Total Liabilities', data.totalLiabilities ?? 0]);
+      rows.push(['', '', 'Total Equity', data.totalEquity ?? 0]);
+      rows.push(['', '', 'TOTAL LIABILITIES & EQUITY', data.totalLiabilitiesEquity ?? 0]);
+
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'Balance Sheet');
+      filename = `balance-sheet-${today}.xlsx`;
+    }
+
+    XLSX.writeFile(wb, filename);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -134,9 +234,9 @@ export default function ReportsPage() {
             <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button variant="outline" className="flex items-center gap-2">
+          <Button variant="outline" onClick={exportToExcel} disabled={loading || !data} className="flex items-center gap-2">
             <Download className="w-4 h-4" />
-            Export PDF
+            Export Excel
           </Button>
         </div>
       </div>

@@ -50,7 +50,7 @@ export async function POST(request: Request) {
             create: [
               ...items.map((item: any) => ({
                 accountId: item.accountId,
-                debit: item.amount,
+                debit: isVatInclusive ? (item.amount || 0) / 1.12 : (item.amount || 0),
                 credit: 0,
                 memo: `Expense ${expenseNumber}: ${item.description}`,
               })),
@@ -254,7 +254,7 @@ export async function PATCH(request: Request) {
     // Step 3: Batch all journal lines into a single create
     const allJournalLines: any[] = items.map((item: any) => ({
       accountId: item.accountId,
-      debit: item.amount,
+      debit: isVatInclusive ? (item.amount || 0) / 1.12 : (item.amount || 0),
       credit: 0,
       memo: `Expense ${existingExpense.expenseNumber}: ${item.description}`,
     }));

@@ -47,6 +47,7 @@ const navItems = [
       { href: '/accounting/reconciliation', label: 'Reconciliation', icon: CheckCircle2, adminOnly: true },
       { href: '/accounting/journal', label: 'Journal Entries', icon: Timer, adminOnly: true },
       { href: '/accounting/expenses', label: 'Expenses', icon: DollarSign },
+      { href: '/accounting/expenses-report', label: 'Expenses Report', icon: FileText, adminOnly: true },
       { href: '/accounting/sales', label: 'Sales (AR)', icon: DollarSign },
       { href: '/accounting/purchases', label: 'Purchases (AP)', icon: Package },
       { href: '/accounting/petty-cash', label: 'Petty Cash', icon: DollarSign },
