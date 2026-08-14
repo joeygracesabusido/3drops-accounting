@@ -361,7 +361,7 @@ export default function JournalPage() {
                                 required
                               >
                                 <option value="">Select Account...</option>
-                                {accounts.map(acc => (
+                                {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map(acc => (
                                   <option key={acc.id} value={acc.id}>{acc.code} - {acc.name}</option>
                                 ))}
                               </select>

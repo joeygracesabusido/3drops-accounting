@@ -636,7 +636,7 @@ body: JSON.stringify({
                               <SelectValue placeholder="Select Category" />
                             </SelectTrigger>
                             <SelectContent>
-                              {accounts.map(acc => (
+                              {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map(acc => (
                                 <SelectItem key={acc.id} value={acc.id}>{acc.code} - {acc.name}</SelectItem>    
                               ))}
                             </SelectContent>
@@ -840,7 +840,7 @@ body: JSON.stringify({
                               <SelectValue placeholder="Select Category" />
                             </SelectTrigger>
                             <SelectContent>
-                              {accounts.map(acc => (
+                              {[...accounts].sort((a, b) => a.name.localeCompare(b.name)).map(acc => (
                                 <SelectItem key={acc.id} value={acc.id}>{acc.code} - {acc.name}</SelectItem>    
                               ))}
                             </SelectContent>
