@@ -332,3 +332,46 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: `Server error: ${message}` }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Expense ID is required' }, { status: 400 });
+    }
+
+    const expense = await prisma.expense.findUnique({
+      where: { id },
+    });
+
+    if (!expense) {
+      return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
+    }
+
+    // Delete journal lines and journal entry first (if linked)
+    if (expense.journalEntryId) {
+      await prisma.journalLine.deleteMany({
+        where: { entryId: expense.journalEntryId },
+      });
+      await prisma.journalEntry.delete({
+        where: { id: expense.journalEntryId },
+      });
+    }
+
+    // Delete expense items then the expense itself
+    await prisma.expenseItem.deleteMany({
+      where: { expenseId: id },
+    });
+    await prisma.expense.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({ success: true, message: 'Expense and journal entry deleted' });
+  } catch (error) {
+    console.error('Error deleting expense:', error);
+    const message = error instanceof Error ? error.message : 'Failed to delete expense';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

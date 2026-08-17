@@ -101,6 +101,10 @@ export default function ExpensesPage() {
   const [exportLimit, setExportLimit] = useState(200);
   const [exporting, setExporting] = useState(false);
 
+  // Delete Confirmation State
+  const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const fetchInitialData = useCallback(async () => {
     try {
       const [accRes, vendorsRes] = await Promise.all([
@@ -462,6 +466,29 @@ body: JSON.stringify({
     setSelectedExpense(expense);
     setIsDetailsOpen(true);
   };
+
+  async function handleDelete() {
+    if (!expenseToDelete) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/accounting/expenses?id=${expenseToDelete.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to delete expense');
+      }
+
+      toast.success('Expense and linked journal entry deleted');
+      setExpenseToDelete(null);
+      fetchExpenses();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'An error occurred while deleting');
+    } finally {
+      setIsDeleting(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -994,6 +1021,17 @@ body: JSON.stringify({
                               Approve
                             </Button>
                           )}
+                          {exp.status === 'PENDING' && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => setExpenseToDelete(exp)}
+                              title="Delete expense"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1115,6 +1153,44 @@ body: JSON.stringify({
             >
               <Download className="w-4 h-4 mr-2" />
               {exporting ? 'Exporting...' : 'Export'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!expenseToDelete} onOpenChange={(open) => !open && setExpenseToDelete(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">Delete Expense</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <p className="text-sm">
+              Are you sure you want to delete expense <strong>{expenseToDelete?.expenseNumber}</strong> for <strong>{expenseToDelete?.payee}</strong>?
+            </p>
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+              <p className="font-medium text-destructive">This action cannot be undone.</p>
+              <p className="text-muted-foreground mt-1">
+                This will permanently delete the expense record{expenseToDelete?.journalEntryId ? ' and its linked journal entry (including all journal lines)' : ''}.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setExpenseToDelete(null)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              {isDeleting ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
