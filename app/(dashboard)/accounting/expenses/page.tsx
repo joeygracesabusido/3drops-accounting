@@ -68,6 +68,7 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [cashAccounts, setCashAccounts] = useState<Account[]>([]);
+  const [apAccounts, setApAccounts] = useState<Account[]>([]);
   const [vendors, setVendors] = useState<{ id: string; entityName: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -78,12 +79,17 @@ export default function ExpensesPage() {
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
+  // Subsidiary Ledgers (for AP)
+  const [subsidiaryLedgers, setSubsidiaryLedgers] = useState<{ id: string; entityCode: string; entityName: string; accountId: string; entityType: string }[]>([]);
+
   // Form State
   const [formData, setFormData] = useState({
     payee: '',
     date: new Date().toISOString().split('T')[0],
     description: '',
     cashAccountId: '',
+    apAccountId: '',
+    subsidiaryLedgerId: '',
     isVatInclusive: false,
     noInputVat: false,
     ewtAccountId: '',
@@ -107,18 +113,24 @@ export default function ExpensesPage() {
 
   const fetchInitialData = useCallback(async () => {
     try {
-      const [accRes, vendorsRes] = await Promise.all([
+      const [accRes, vendorsRes, subsRes] = await Promise.all([
         fetch('/api/accounting/accounts').then(res => res.json()),
         fetch('/api/accounting/vendors').then(res => res.json()),
+        fetch('/api/accounting/subsidiary-ledgers').then(res => res.json()),
       ]);
 
       const allAccounts = accRes;
       setVendors(Array.isArray(vendorsRes) ? vendorsRes : []);
       setAccounts(allAccounts.filter((a: Account) => a.type === 'EXPENSE'));
+      setSubsidiaryLedgers(Array.isArray(subsRes) ? subsRes : []);
 
       // Typically Cash/Bank accounts are ASSET type
       const cashAccs = allAccounts.filter((a: Account) => a.type === 'ASSET' && (a.name.toLowerCase().includes('cash') || a.name.toLowerCase().includes('bank')));
       setCashAccounts(cashAccs);
+
+      // AP accounts - Liability accounts with subsidiary ledger (code starting with 21)
+      const apAccs = allAccounts.filter((a: Account) => a.type === 'LIABILITY' && (a.code?.startsWith('21') || a.name.toLowerCase().includes('payable')));
+      setApAccounts(apAccs);
 
       if (cashAccs.length > 0) {
         setFormData(prev => ({ ...prev, cashAccountId: cashAccs[0].id }));
@@ -288,17 +300,30 @@ export default function ExpensesPage() {
   const openEdit = (expense: Expense) => {
     setEditingExpense(expense);
 
-    // Extract cash account, VAT, and EWT settings from journal entry lines
+    // Extract cash account, VAT, EWT, AP, and subsidiary settings from journal entry lines
     let cashAccountId = cashAccounts[0]?.id || ''
     let ewtAccountId = ''
     let ewtPercentage = ''
     let isVatInclusive = false
     let noInputVat = true
+    let apAccountId = ''
+    let subsidiaryLedgerId = ''
     const itemSum = expense.items.reduce((s, i) => s + i.amount, 0)
 
     if (expense.journalEntry?.lines) {
       const lines = expense.journalEntry.lines
       const creditLines = lines.filter(l => l.credit > 0)
+
+      // Find AP line (account code starting with 21 - Accounts Payable)
+      const apLine = creditLines.find(l => l.account?.code?.startsWith('21'))
+      if (apLine) {
+        apAccountId = apLine.accountId
+        // Extract subsidiary from the AP line
+        const apJournalLine = lines.find(l => l.accountId === apLine.accountId && (l as { subsidiaryLedgerId?: string }).subsidiaryLedgerId)
+        if (apJournalLine) {
+          subsidiaryLedgerId = (apJournalLine as { subsidiaryLedgerId?: string }).subsidiaryLedgerId || ''
+        }
+      }
 
       // Find EWT lines (account code starting with 234)
       const ewtLine = creditLines.find(l => l.account?.code?.startsWith('234'))
@@ -308,10 +333,10 @@ export default function ExpensesPage() {
         ewtPercentage = ewtRate > 0 ? ewtRate.toFixed(2) : ''
       }
 
-      // Find cash account (the largest non-EWT credit line)
-      const nonEwtCredit = creditLines.find(l => !l.account?.code?.startsWith('234'))
-      if (nonEwtCredit) {
-        cashAccountId = nonEwtCredit.accountId
+      // Find cash account (the largest non-EWT, non-AP credit line)
+      const nonEwtApCredit = creditLines.find(l => !l.account?.code?.startsWith('234') && !l.account?.code?.startsWith('21'))
+      if (nonEwtApCredit) {
+        cashAccountId = nonEwtApCredit.accountId
       }
 
       // Check if Input VAT line exists
@@ -331,6 +356,8 @@ export default function ExpensesPage() {
       date: new Date(expense.date).toISOString().split('T')[0],
       description: expense.description || '',
       cashAccountId,
+      apAccountId,
+      subsidiaryLedgerId,
       isVatInclusive,
       noInputVat,
       ewtAccountId,
@@ -347,8 +374,13 @@ export default function ExpensesPage() {
 
   async function handleUpdate() {
     if (!editingExpense) return;
-    if (!formData.payee || !formData.cashAccountId) {
+    if (!formData.payee || (!formData.cashAccountId && !formData.apAccountId)) {
       toast.error('Please provide payee and payment account');
+      return;
+    }
+
+    if (formData.apAccountId && !formData.subsidiaryLedgerId) {
+      toast.error('Please select a subsidiary (vendor) when using Accounts Payable');
       return;
     }
 
@@ -368,7 +400,8 @@ body: JSON.stringify({
           netAmount: netOfVat,
           vatAmount,
           ewtAmount,
-          branchId: formData.branchId || selectedBranch?.id || ''
+          branchId: formData.branchId || selectedBranch?.id || '',
+          cashAccountId: formData.apAccountId ? '' : formData.cashAccountId,
         })
       });
 
@@ -385,6 +418,8 @@ body: JSON.stringify({
         date: new Date().toISOString().split('T')[0],
         description: '',
         cashAccountId: cashAccounts[0]?.id || '',
+        apAccountId: '',
+        subsidiaryLedgerId: '',
         isVatInclusive: false,
         noInputVat: false,
         ewtAccountId: '',
@@ -399,8 +434,13 @@ body: JSON.stringify({
   }
 
   async function handleSubmit() {
-    if (!formData.payee || !formData.cashAccountId) {
+    if (!formData.payee || (!formData.cashAccountId && !formData.apAccountId)) {
       toast.error('Please provide payee and payment account');
+      return;
+    }
+
+    if (formData.apAccountId && !formData.subsidiaryLedgerId) {
+      toast.error('Please select a subsidiary (vendor) when using Accounts Payable');
       return;
     }
 
@@ -419,7 +459,8 @@ body: JSON.stringify({
           netAmount: netOfVat,
           vatAmount,
           ewtAmount,
-          branchId: formData.branchId || selectedBranch?.id || ''
+          branchId: formData.branchId || selectedBranch?.id || '',
+          cashAccountId: formData.apAccountId ? '' : formData.cashAccountId,
         })
       });
 
@@ -432,6 +473,8 @@ body: JSON.stringify({
         date: new Date().toISOString().split('T')[0],
         description: '',
         cashAccountId: cashAccounts[0]?.id || '',
+        apAccountId: '',
+        subsidiaryLedgerId: '',
         isVatInclusive: false,
         noInputVat: false,
         ewtAccountId: '',
@@ -556,8 +599,8 @@ body: JSON.stringify({
               <div className="col-span-2 space-y-2">
                 <Label>Payment Account (Credit)</Label>
                 <Select
-                  value={formData.cashAccountId}
-                  onValueChange={val => setFormData({...formData, cashAccountId: val})}
+                  value={formData.apAccountId ? '' : formData.cashAccountId}
+                  onValueChange={val => setFormData({...formData, cashAccountId: val, apAccountId: '', subsidiaryLedgerId: ''})}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select Cash/Bank account" />
@@ -569,6 +612,43 @@ body: JSON.stringify({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="col-span-2 space-y-2">
+                <Label>Accounts Payable (Optional)</Label>
+                <Select
+                  value={formData.apAccountId}
+                  onValueChange={val => setFormData({...formData, apAccountId: val, subsidiaryLedgerId: '', cashAccountId: val ? '' : cashAccounts[0]?.id || ''})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select AP Account (if on credit)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {apAccounts.map(acc => (
+                      <SelectItem key={acc.id} value={acc.id}>{acc.code} - {acc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {formData.apAccountId && (
+                  <p className="text-xs text-muted-foreground">Credit will go to Accounts Payable instead of Cash/Bank</p>
+                )}
+              </div>
+              {formData.apAccountId && (
+                <div className="col-span-2 space-y-2">
+                  <Label>Subsidiary (Vendor) *</Label>
+                  <Select
+                    value={formData.subsidiaryLedgerId}
+                    onValueChange={val => setFormData({...formData, subsidiaryLedgerId: val})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Vendor..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {subsidiaryLedgers.filter(sl => sl.entityType === 'SUPPLIER').map(sl => (
+                        <SelectItem key={sl.id} value={sl.id}>{sl.entityCode} - {sl.entityName}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Input VAT Account</Label>
                 <select className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -760,8 +840,8 @@ body: JSON.stringify({
               <div className="col-span-2 space-y-2">
                 <Label>Payment Account (Credit)</Label>
                 <Select
-                  value={formData.cashAccountId}
-                  onValueChange={val => setFormData({...formData, cashAccountId: val})}
+                  value={formData.apAccountId ? '' : formData.cashAccountId}
+                  onValueChange={val => setFormData({...formData, cashAccountId: val, apAccountId: '', subsidiaryLedgerId: ''})}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select Cash/Bank account" />
@@ -773,6 +853,43 @@ body: JSON.stringify({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="col-span-2 space-y-2">
+                <Label>Accounts Payable (Optional)</Label>
+                <Select
+                  value={formData.apAccountId}
+                  onValueChange={val => setFormData({...formData, apAccountId: val, subsidiaryLedgerId: '', cashAccountId: val ? '' : cashAccounts[0]?.id || ''})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select AP Account (if on credit)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {apAccounts.map(acc => (
+                      <SelectItem key={acc.id} value={acc.id}>{acc.code} - {acc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {formData.apAccountId && (
+                  <p className="text-xs text-muted-foreground">Credit will go to Accounts Payable instead of Cash/Bank</p>
+                )}
+              </div>
+              {formData.apAccountId && (
+                <div className="col-span-2 space-y-2">
+                  <Label>Subsidiary (Vendor) *</Label>
+                  <Select
+                    value={formData.subsidiaryLedgerId}
+                    onValueChange={val => setFormData({...formData, subsidiaryLedgerId: val})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Vendor..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {subsidiaryLedgers.filter(sl => sl.entityType === 'SUPPLIER').map(sl => (
+                        <SelectItem key={sl.id} value={sl.id}>{sl.entityCode} - {sl.entityName}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>Input VAT Account</Label>
                 <select className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"

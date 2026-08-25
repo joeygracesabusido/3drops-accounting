@@ -5,10 +5,14 @@ import prisma from '@/lib/prisma';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { payee, date, description, items, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, branchId } = body;
+    const { payee, date, description, items, cashAccountId, apAccountId, subsidiaryLedgerId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, branchId } = body;
 
-    if (!payee || !items || items.length === 0 || !cashAccountId) {
-      return NextResponse.json({ error: 'Missing required fields: payee, items, or cash account' }, { status: 400 });
+    if (!payee || !items || items.length === 0 || (!cashAccountId && !apAccountId)) {
+      return NextResponse.json({ error: 'Missing required fields: payee, items, or payment account' }, { status: 400 });
+    }
+
+    if (apAccountId && !subsidiaryLedgerId) {
+      return NextResponse.json({ error: 'Subsidiary (vendor) is required when using Accounts Payable' }, { status: 400 });
     }
 
     const expenseNumber = `EXP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -88,15 +92,29 @@ export async function POST(request: Request) {
         });
       }
 
-      await tx.journalLine.create({
-        data: {
-          entryId: journalEntry.id,
-          accountId: cashAccountId,
-          debit: 0,
-          credit: finalTotal - computedEwt,
-          memo: `Payment for ${expenseNumber}`,
-        },
-      });
+      // Credit AP or Cash
+      if (apAccountId && subsidiaryLedgerId) {
+        await tx.journalLine.create({
+          data: {
+            entryId: journalEntry.id,
+            accountId: apAccountId,
+            subsidiaryLedgerId,
+            debit: 0,
+            credit: finalTotal - computedEwt,
+            memo: `AP for ${expenseNumber}`,
+          },
+        });
+      } else {
+        await tx.journalLine.create({
+          data: {
+            entryId: journalEntry.id,
+            accountId: cashAccountId,
+            debit: 0,
+            credit: finalTotal - computedEwt,
+            memo: `Payment for ${expenseNumber}`,
+          },
+        });
+      }
 
       await tx.expense.update({
         where: { id: expense.id },
@@ -143,7 +161,7 @@ export async function GET(request: Request) {
         journalEntry: {
           include: {
             lines: {
-              include: { account: true },
+              include: { account: true, subsidiaryLedger: true },
               orderBy: { createdAt: 'asc' },
             },
           },
@@ -161,7 +179,7 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json();
-    const { id, status, payee, date, description, items, totalAmount, cashAccountId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, branchId } = body;
+    const { id, status, payee, date, description, items, totalAmount, cashAccountId, apAccountId, subsidiaryLedgerId, isVatInclusive, noInputVat, ewtAccountId, ewtPercentage, branchId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Expense ID is required' }, { status: 400 });
@@ -215,8 +233,12 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Expense must have at least one item' }, { status: 400 });
     }
 
-    if (!cashAccountId) {
-      return NextResponse.json({ error: 'Cash/bank account is required' }, { status: 400 });
+    if (!cashAccountId && !apAccountId) {
+      return NextResponse.json({ error: 'Cash/bank account or Accounts Payable is required' }, { status: 400 });
+    }
+
+    if (apAccountId && !subsidiaryLedgerId) {
+      return NextResponse.json({ error: 'Subsidiary (vendor) is required when using Accounts Payable' }, { status: 400 });
     }
 
     const itemTotal = items.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
@@ -277,12 +299,23 @@ export async function PATCH(request: Request) {
       });
     }
 
-    allJournalLines.push({
-      accountId: cashAccountId,
-      debit: 0,
-      credit: finalTotal - computedEwt,
-      memo: `Payment for ${existingExpense.expenseNumber}`,
-    });
+    // Credit AP or Cash
+    if (apAccountId && subsidiaryLedgerId) {
+      allJournalLines.push({
+        accountId: apAccountId,
+        subsidiaryLedgerId,
+        debit: 0,
+        credit: finalTotal - computedEwt,
+        memo: `AP for ${existingExpense.expenseNumber}`,
+      });
+    } else {
+      allJournalLines.push({
+        accountId: cashAccountId,
+        debit: 0,
+        credit: finalTotal - computedEwt,
+        memo: `Payment for ${existingExpense.expenseNumber}`,
+      });
+    }
 
     // Step 4: Create journal entry with all lines in one operation
     const journalEntry = await prisma.journalEntry.create({
