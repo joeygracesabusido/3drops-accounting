@@ -1094,6 +1094,7 @@ body: JSON.stringify({
                     <TableHead>Expense #</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Payee</TableHead>
+                    <TableHead>Description</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-center">Action</TableHead>
@@ -1105,6 +1106,9 @@ body: JSON.stringify({
                       <TableCell className="font-medium">{exp.expenseNumber}</TableCell>
                       <TableCell>{new Date(exp.date).toLocaleDateString()}</TableCell>
                       <TableCell>{exp.payee}</TableCell>
+                      <TableCell className="max-w-[240px] truncate" title={exp.description || ''}>
+                        {exp.description || '—'}
+                      </TableCell>
                       <TableCell className="text-right font-semibold">
                         ₱{exp.totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}
                       </TableCell>

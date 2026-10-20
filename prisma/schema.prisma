@@ -977,6 +977,7 @@ model PettyCashLiquidation {
   variance         Float?
   approvedBy       String?
   approvedAt       DateTime?
+  journalEntryId   String?             @db.ObjectId
   
   status           LiquidationStatus   @default(PENDING)
   

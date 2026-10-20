@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "build:cloudflare": "next build && npx @cloudflare/next-on-pages",
     "postbuild": "echo 'Use build:cloudflare for Cloudflare deployment'",
     "start": "next start",

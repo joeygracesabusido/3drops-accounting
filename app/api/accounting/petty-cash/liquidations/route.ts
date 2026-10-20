@@ -120,7 +120,7 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
-    const { id, status: newStatus, approvedAmount, notes, branchId } = body;
+    const { id, status: newStatus, approvedAmount, notes, branchId, amount, date, expenseAccountId: expenseAccountIdEdit } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
@@ -135,6 +135,98 @@ export async function PATCH(request: Request) {
         { error: 'Liquidation not found' },
         { status: 404 }
       );
+    }
+
+    const isEdit = amount !== undefined || date !== undefined || notes !== undefined || expenseAccountIdEdit !== undefined;
+
+    if (liquidation.status === 'APPROVED') {
+      // Retrying an approval must not duplicate the linked expense.
+      if (!isEdit) {
+        return NextResponse.json({ success: true, alreadyApproved: true });
+      }
+
+      const oldActual = liquidation.approvedAmount ?? liquidation.amount;
+      const newActual = amount !== undefined ? Number(amount) : oldActual;
+      const amountChanged = newActual !== oldActual;
+      const balanceDelta = oldActual - newActual;
+
+      if (balanceDelta < 0) {
+        const fund = await prisma.pettyCash.findUnique({
+          where: { id: liquidation.pettyCashId },
+          select: { currentBalance: true },
+        });
+        if ((fund?.currentBalance ?? 0) + balanceDelta < 0) {
+          return NextResponse.json({ error: 'Insufficient petty cash balance' }, { status: 400 });
+        }
+      }
+
+      const editData: Record<string, unknown> = {};
+      if (amountChanged) {
+        editData.amount = newActual;
+        editData.approvedAmount = newActual;
+        editData.variance = 0;
+      }
+      if (date !== undefined) editData.date = date ? new Date(date) : null;
+      if (notes !== undefined) editData.notes = notes;
+      if (expenseAccountIdEdit !== undefined) editData.expenseAccountId = expenseAccountIdEdit || null;
+      if (branchId !== undefined) editData.branchId = branchId;
+
+      await prisma.$transaction(async (tx) => {
+        await tx.pettyCashLiquidation.update({ where: { id }, data: editData });
+
+        if (balanceDelta !== 0) {
+          await tx.pettyCash.update({
+            where: { id: liquidation.pettyCashId },
+            data: { currentBalance: { increment: balanceDelta } },
+          });
+        }
+
+        if (liquidation.journalEntryId) {
+          if (amountChanged) {
+            await tx.journalLine.updateMany({
+              where: { entryId: liquidation.journalEntryId, debit: { gt: 0 } },
+              data: { debit: newActual },
+            });
+            await tx.journalLine.updateMany({
+              where: { entryId: liquidation.journalEntryId, credit: { gt: 0 } },
+              data: { credit: newActual },
+            });
+            const linkedExpense = await tx.expense.findFirst({
+              where: { journalEntryId: liquidation.journalEntryId },
+            });
+            if (linkedExpense) {
+              await tx.expense.update({
+                where: { id: linkedExpense.id },
+                data: { totalAmount: newActual },
+              });
+              await tx.expenseItem.updateMany({
+                where: { expenseId: linkedExpense.id },
+                data: { amount: newActual },
+              });
+            }
+          }
+          if (date !== undefined) {
+            await tx.expense.updateMany({
+              where: { journalEntryId: liquidation.journalEntryId },
+              data: { date: date ? new Date(date) : new Date() },
+            });
+          }
+        }
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
+    if (isEdit) {
+      const editData: Record<string, unknown> = {};
+      if (amount !== undefined) editData.amount = Number(amount);
+      if (date !== undefined) editData.date = date ? new Date(date) : null;
+      if (notes !== undefined) editData.notes = notes;
+      if (expenseAccountIdEdit !== undefined) editData.expenseAccountId = expenseAccountIdEdit || null;
+      if (branchId !== undefined) editData.branchId = branchId;
+
+      await prisma.pettyCashLiquidation.update({ where: { id }, data: editData });
+      return NextResponse.json({ success: true });
     }
 
     const userEmail = await getUserEmail();
@@ -180,32 +272,72 @@ export async function PATCH(request: Request) {
       const expenseAccountId = liquidation.expenseAccountId;
       const cashAccountId = pettyCash?.cashAccountId;
 
-      if (expenseAccountId && cashAccountId) {
-        await prisma.journalEntry.create({
-          data: {
-            date: new Date(),
-            reference: `LIQ-${Date.now()}`,
-            description: `Petty Cash Liquidation - ${disbursement?.description || 'Disbursement'}`,
-            status: 'POSTED',
-            lines: {
-              create: [
-                {
-                  accountId: expenseAccountId,
-                  debit: actualAmount,
-                  credit: 0,
-                  memo: `Liquidation of disbursement`,
-                },
-                {
-                  accountId: cashAccountId,
-                  debit: 0,
-                  credit: actualAmount,
-                  memo: `Petty cash expenditure`,
-                },
-              ],
+      // Approved liquidations are expenses: write them to the expenses ledger the
+      // /accounting/expenses page reads, linked to the same journal entry.
+      const expenseNumber = `EXP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const expenseDescription = disbursement?.description || 'Petty cash liquidation';
+
+      await prisma.$transaction(async (tx) => {
+        let journalEntryId: string | undefined;
+
+        if (expenseAccountId && cashAccountId) {
+          const journalEntry = await tx.journalEntry.create({
+            data: {
+              date: new Date(),
+              reference: `LIQ-${Date.now()}`,
+              description: `Petty Cash Liquidation - ${expenseDescription}`,
+              status: 'POSTED',
+              lines: {
+                create: [
+                  {
+                    accountId: expenseAccountId,
+                    debit: actualAmount,
+                    credit: 0,
+                    memo: `Liquidation of disbursement`,
+                  },
+                  {
+                    accountId: cashAccountId,
+                    debit: 0,
+                    credit: actualAmount,
+                    memo: `Petty cash expenditure`,
+                  },
+                ],
+              },
             },
+          });
+          journalEntryId = journalEntry.id;
+          await tx.pettyCashLiquidation.update({
+            where: { id },
+            data: { journalEntryId },
+          });
+        }
+
+        await tx.expense.create({
+          data: {
+            expenseNumber,
+            date: liquidation.date || new Date(),
+            payee: disbursement?.payeeName || 'Petty Cash',
+            description: expenseDescription,
+            status: 'APPROVED',
+            totalAmount: actualAmount,
+            branchId: liquidation.branchId || undefined,
+            journalEntryId,
+            ...(expenseAccountId
+              ? {
+                  items: {
+                    create: [
+                      {
+                        description: expenseDescription,
+                        amount: actualAmount,
+                        accountId: expenseAccountId,
+                      },
+                    ],
+                  },
+                }
+              : {}),
           },
         });
-      }
+      });
     } else if (newStatus === 'REJECTED') {
       const rejectedData: Record<string, unknown> = {
         status: 'REJECTED',

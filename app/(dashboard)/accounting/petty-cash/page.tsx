@@ -49,6 +49,7 @@ interface Disbursement {
   date: string;
   description: string;
   payeeName: string;
+  expenseAccountId?: string;
   status: string;
   createdAt: string;
   approvedAt?: string;
@@ -62,6 +63,7 @@ interface Liquidation {
   date: string;
   notes?: string;
   status: string;
+  approvedAmount?: number;
   approvedAt?: string;
   createdAt: string;
   pettyCash?: {
@@ -89,6 +91,22 @@ export default function PettyCashPage() {
   });
 
   const [selectedDisbursement, setSelectedDisbursement] = useState<Disbursement | null>(null);
+  const [isEditDisbursementOpen, setEditDisbursementOpen] = useState(false);
+  const [editingDisbursement, setEditingDisbursement] = useState<Disbursement | null>(null);
+  const [editDisbursementData, setEditDisbursementData] = useState({
+    amount: 0 as string | number,
+    date: '',
+    description: '',
+    payeeName: '',
+    expenseAccountId: '',
+  });
+  const [isEditLiquidationOpen, setEditLiquidationOpen] = useState(false);
+  const [editingLiquidation, setEditingLiquidation] = useState<Liquidation | null>(null);
+  const [editLiquidationData, setEditLiquidationData] = useState({
+    amount: 0 as string | number,
+    date: '',
+    notes: '',
+  });
   const [selectedFund, setSelectedFund] = useState<PettyCashFund | null>(null);
   const [activeTab, setActiveTab] = useState<'funds' | 'disbursements' | 'liquidations'>('funds');
   const [isReplenishDialogOpen, setReplenishDialogOpen] = useState(false);
@@ -147,7 +165,9 @@ export default function PettyCashPage() {
       const res = await fetch('/api/accounting/accounts');
       const data = await res.json();
       if (Array.isArray(data)) {
-        const expenseData = data.filter((a: Account) => a.type === 'EXPENSE' || a.code.startsWith('5'));
+        const expenseData = data
+          .filter((a: Account) => a.type === 'EXPENSE' || a.code.startsWith('5'))
+          .sort((a: Account, b: Account) => a.name.localeCompare(b.name));
         const cashData = data.filter((a: Account) => a.code.startsWith('11') || a.code.startsWith('10'));
         setExpenseAccounts(expenseData);
         setCashAccounts(cashData);
@@ -367,8 +387,92 @@ export default function PettyCashPage() {
     }
   }
 
-  function resetForm() {
-    setFormData({
+  function openEditDisbursement(disb: Disbursement) {
+    setEditingDisbursement(disb);
+    setEditDisbursementData({
+      amount: disb.amount,
+      date: disb.date ? new Date(disb.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      description: disb.description || '',
+      payeeName: disb.payeeName || '',
+      expenseAccountId: disb.expenseAccountId || '',
+    });
+    setEditDisbursementOpen(true);
+  }
+
+  async function saveDisbursementEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingDisbursement) return;
+
+    try {
+      const res = await fetch('/api/accounting/petty-cash/disbursements', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingDisbursement.id,
+          amount: parseFloat(String(editDisbursementData.amount)) || 0,
+          date: editDisbursementData.date,
+          description: editDisbursementData.description,
+          payeeName: editDisbursementData.payeeName,
+          expenseAccountId: editDisbursementData.expenseAccountId || null,
+        }),
+      });
+
+      if (res.ok) {
+        setEditDisbursementOpen(false);
+        setEditingDisbursement(null);
+        fetchFunds();
+        fetchDisbursements();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to update disbursement');
+      }
+    } catch (err) {
+      console.error('Error updating disbursement:', err);
+    }
+  }
+
+  function openEditLiquidation(liq: Liquidation) {
+    setEditingLiquidation(liq);
+    setEditLiquidationData({
+      amount: liq.approvedAmount ?? liq.amount,
+      date: liq.date ? new Date(liq.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+      notes: liq.notes || '',
+    });
+    setEditLiquidationOpen(true);
+  }
+
+  async function saveLiquidationEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingLiquidation) return;
+
+    try {
+      const res = await fetch('/api/accounting/petty-cash/liquidations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingLiquidation.id,
+          amount: parseFloat(String(editLiquidationData.amount)) || 0,
+          date: editLiquidationData.date,
+          notes: editLiquidationData.notes,
+        }),
+      });
+
+      if (res.ok) {
+        setEditLiquidationOpen(false);
+        setEditingLiquidation(null);
+        fetchFunds();
+        fetchLiquidations();
+        fetchDisbursements();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to update liquidation');
+      }
+    } catch (err) {
+      console.error('Error updating liquidation:', err);
+    }
+  }
+
+  function resetForm() {    setFormData({
       name: '',
       fundAmount: '',
       cashAccountId: '',
@@ -685,15 +789,24 @@ export default function PettyCashPage() {
                         {disb.approvedAt ? new Date(disb.approvedAt).toLocaleDateString('en-PH') : '-'}
                       </TableCell>
                       <TableCell>
-                        {disb.status === 'PENDING' && (
+                        <div className="flex gap-2">
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleLiquidate(disb)}
+                            onClick={() => openEditDisbursement(disb)}
                           >
-                            Liquidate
+                            Edit
                           </Button>
-                        )}
+                          {disb.status === 'PENDING' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleLiquidate(disb)}
+                            >
+                              Liquidate
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -752,26 +865,35 @@ export default function PettyCashPage() {
                         {liq.approvedAt ? new Date(liq.approvedAt).toLocaleDateString('en-PH') : '-'}
                       </TableCell>
                       <TableCell>
-                        {liq.status === 'PENDING' && (
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-green-600 hover:text-green-700"
-                              onClick={() => handleLiquidationAction(liq.id, 'APPROVED')}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-red-600 hover:text-red-700"
-                              onClick={() => handleLiquidationAction(liq.id, 'REJECTED')}
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                        )}
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openEditLiquidation(liq)}
+                          >
+                            Edit
+                          </Button>
+                          {liq.status === 'PENDING' && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-green-600 hover:text-green-700"
+                                onClick={() => handleLiquidationAction(liq.id, 'APPROVED')}
+                              >
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-600 hover:text-red-700"
+                                onClick={() => handleLiquidationAction(liq.id, 'REJECTED')}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -890,6 +1012,113 @@ export default function PettyCashPage() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setLiquidateDialogOpen(false)}>Cancel</Button>
               <Button type="submit">Submit Liquidation</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditDisbursementOpen} onOpenChange={setEditDisbursementOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Disbursement</DialogTitle>
+            <DialogDescription>
+              Correct this record even after approval. Editing the amount adjusts the fund balance.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveDisbursementEdit} className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>Amount *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={editDisbursementData.amount}
+                onChange={e => setEditDisbursementData({...editDisbursementData, amount: parseFloat(e.target.value) || 0})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Date *</Label>
+              <Input
+                type="date"
+                value={editDisbursementData.date}
+                onChange={e => setEditDisbursementData({...editDisbursementData, date: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Payee Name</Label>
+              <Input
+                value={editDisbursementData.payeeName}
+                onChange={e => setEditDisbursementData({...editDisbursementData, payeeName: e.target.value})}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description *</Label>
+              <Input
+                value={editDisbursementData.description}
+                onChange={e => setEditDisbursementData({...editDisbursementData, description: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Expense Account</Label>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                value={editDisbursementData.expenseAccountId}
+                onChange={e => setEditDisbursementData({...editDisbursementData, expenseAccountId: e.target.value})}
+              >
+                <option value="">Select expense account...</option>
+                {expenseAccounts.map((acc: Account) => (
+                  <option key={acc.id} value={acc.id}>{acc.code} - {acc.name}</option>
+                ))}
+              </select>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditDisbursementOpen(false)}>Cancel</Button>
+              <Button type="submit">Save Changes</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditLiquidationOpen} onOpenChange={setEditLiquidationOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Liquidation</DialogTitle>
+            <DialogDescription>
+              Editing an approved liquidation also updates its journal entry, expense, and the fund balance.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveLiquidationEdit} className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>Amount *</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={editLiquidationData.amount}
+                onChange={e => setEditLiquidationData({...editLiquidationData, amount: parseFloat(e.target.value) || 0})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Date *</Label>
+              <Input
+                type="date"
+                value={editLiquidationData.date}
+                onChange={e => setEditLiquidationData({...editLiquidationData, date: e.target.value})}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Notes / Remarks</Label>
+              <Input
+                value={editLiquidationData.notes}
+                onChange={e => setEditLiquidationData({...editLiquidationData, notes: e.target.value})}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditLiquidationOpen(false)}>Cancel</Button>
+              <Button type="submit">Save Changes</Button>
             </DialogFooter>
           </form>
         </DialogContent>

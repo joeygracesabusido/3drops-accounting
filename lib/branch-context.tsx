@@ -38,8 +38,9 @@ export function BranchProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch('/api/branches');
       const data = await res.json() as Branch[];
-      setBranches(data);
-      return data;
+      const list = Array.isArray(data) ? data : [];
+      setBranches(list);
+      return list;
     } catch (err) {
       console.error('Failed to fetch branches:', err);
       return [];
