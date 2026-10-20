@@ -693,6 +693,7 @@ model SalesInvoice {
   customerId    String   @db.ObjectId
   customerName   String
   status        SalesInvoiceStatus @default(DRAFT)
+  isAcknowledgementReceipt Boolean @default(false)
   branchId      String?            @db.ObjectId
   branch        Branch?            @relation(fields: [branchId], references: [id])
 
@@ -710,6 +711,7 @@ model SalesInvoice {
   @@index([customerId, status])
   @@index([date])
   @@index([branchId])
+  @@index([isAcknowledgementReceipt])
   @@map("sales_invoices")
 }
 

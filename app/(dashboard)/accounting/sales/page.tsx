@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Search, Trash2 } from 'lucide-react';
+import { Plus, Search, Trash2, Printer } from 'lucide-react';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
 
@@ -28,6 +28,7 @@ export default function SalesPage() {
     dueDate: new Date().toISOString().split('T')[0],
     arAccountId: '',
     revenueAccountId: '',
+    isAcknowledgementReceipt: false,
     branchId: '',
     items: [{ description: '', quantity: 1, unitPrice: 0, total: 0 }],
     totalAmount: 0,
@@ -100,7 +101,7 @@ export default function SalesPage() {
         setFormData({
           customerId: '', customerName: '', date: new Date().toISOString().split('T')[0],
           dueDate: new Date().toISOString().split('T')[0], arAccountId: '', revenueAccountId: '',
-          branchId: selectedBranch?.id || '',
+          isAcknowledgementReceipt: false, branchId: selectedBranch?.id || '',
           items: [{ description: '', quantity: 1, unitPrice: 0, total: 0 }], totalAmount: 0,
         });
         fetchData();
@@ -158,6 +159,20 @@ export default function SalesPage() {
                   <Input type="number" value={formData.totalAmount} readOnly className="bg-muted" />
                 </div>
               </div>
+              <div className="space-y-3 mb-4">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.isAcknowledgementReceipt}
+                    onChange={e => setFormData({...formData, isAcknowledgementReceipt: e.target.checked})}
+                    className="mt-1"
+                  />
+                  <span className="text-sm">
+                    <span className="font-medium">Acknowledgement Receipt (AR)</span>
+                    <span className="block text-xs text-muted-foreground">AR-only record — numbered as AR-YYYY-XXXX, not a BIR sales invoice. Revenue account optional.</span>
+                  </span>
+                </label>
+              </div>
               {branches.length > 0 && (
               <div className="space-y-2 mb-4">
                 <Label>Branch</Label>
@@ -176,7 +191,7 @@ export default function SalesPage() {
                 <div className="space-y-2">
                   <Label>Revenue Account (Credit)</Label>
                   <select className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={formData.revenueAccountId} onChange={e => setFormData({...formData, revenueAccountId: e.target.value})} required>
+                    value={formData.revenueAccountId} onChange={e => setFormData({...formData, revenueAccountId: e.target.value})} required={!formData.isAcknowledgementReceipt}>
                     <option value="">Select Revenue Account...</option>
                     {accounts.filter(a => a.type === 'REVENUE').map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
                   </select>
@@ -234,22 +249,33 @@ export default function SalesPage() {
                 <TableHead>Due Date</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead className="w-16">Print</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {loading ? <TableRow><TableCell colSpan={6} className="text-center py-8">Loading...</TableCell></TableRow> :
-               filteredInvoices.length === 0 ? <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No invoices found.</TableCell></TableRow> :
-               filteredInvoices.map(inv => (
-                 <TableRow key={inv.id}>
-                   <TableCell className="font-mono">{inv.invoiceNumber}</TableCell>
-                   <TableCell>{inv.customerName}</TableCell>
-                   <TableCell>{new Date(inv.date).toLocaleDateString()}</TableCell>
-                   <TableCell>{new Date(inv.dueDate).toLocaleDateString()}</TableCell>
-                   <TableCell className="text-right font-medium">₱{inv.totalAmount.toLocaleString()}</TableCell>
-                   <TableCell><span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">{inv.status}</span></TableCell>
-                 </TableRow>
-               ))}
-            </TableBody>
+              <TableBody>
+                {loading ? <TableRow><TableCell colSpan={7} className="text-center py-8">Loading...</TableCell></TableRow> :
+                 filteredInvoices.length === 0 ? <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">No invoices found.</TableCell></TableRow> :
+                 filteredInvoices.map(inv => (
+                   <TableRow key={inv.id}>
+                     <TableCell className="font-mono">{inv.invoiceNumber}</TableCell>
+                     <TableCell>{inv.customerName}</TableCell>
+                     <TableCell>{new Date(inv.date).toLocaleDateString()}</TableCell>
+                     <TableCell>{new Date(inv.dueDate).toLocaleDateString()}</TableCell>
+                     <TableCell className="text-right font-medium">₱{inv.totalAmount.toLocaleString()}</TableCell>
+                     <TableCell>
+                       <span className={`px-2 py-1 rounded-full text-xs ${inv.isAcknowledgementReceipt ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>
+                         {inv.isAcknowledgementReceipt ? 'ACK' : 'INV'}
+                       </span>
+                       <span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800 ml-1">{inv.status}</span>
+                     </TableCell>
+                     <TableCell>
+                       <Button variant="outline" size="sm" onClick={() => window.open(`/accounting/sales/${inv.id}/print`, '_blank')} title={inv.isAcknowledgementReceipt ? 'Print Acknowledgement Receipt' : 'Print Sales Invoice'}>
+                         <Printer className="w-4 h-4" />
+                       </Button>
+                     </TableCell>
+                   </TableRow>
+                 ))}
+              </TableBody>
           </Table>
         </CardContent>
       </Card>

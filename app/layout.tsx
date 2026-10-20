@@ -3,7 +3,6 @@ import { Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { ThemeProvider } from "@/components/theme-provider";
-
 const font = Plus_Jakarta_Sans({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
