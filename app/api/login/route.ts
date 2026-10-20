@@ -4,6 +4,14 @@ import prisma from '@/lib/prisma';
 
 export async function POST(request: Request) {
   try {
+    if (!process.env.DATABASE_URL) {
+      console.error('Login error: DATABASE_URL environment variable is not set.');
+      return NextResponse.json(
+        { error: 'Database is not configured on the server. Set the DATABASE_URL environment variable and redeploy.' },
+        { status: 500 }
+      );
+    }
+
     const body = await request.json();
     const { username, password } = body;
 
@@ -124,6 +132,14 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('Login error:', error);
+    const err = error as { message?: string; code?: string };
+    const message = err?.message || '';
+    if (/environment variable not found/i.test(message) || err?.code === 'P1012') {
+      return NextResponse.json(
+        { error: 'Database is not configured on the server. Set the DATABASE_URL environment variable and redeploy.' },
+        { status: 500 }
+      );
+    }
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

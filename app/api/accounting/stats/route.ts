@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * API for Accounting Dashboard Stats
  * Provides real-time financial indicators based on GAAP

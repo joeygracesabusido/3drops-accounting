@@ -1,5 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 
+if (!process.env.DATABASE_URL) {
+  console.error('[Prisma] DATABASE_URL environment variable is not set. Set it in the deployment environment.');
+}
+
 // Singleton pattern for Prisma Client with health check for new models
 const prismaClientSingleton = () => {
   return new PrismaClient()
