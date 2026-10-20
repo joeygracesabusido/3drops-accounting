@@ -4,3 +4,19 @@ node_modules/
 
 .superpowers/
 tsconfig.tsbuildinfo
+
+# Graphify
+graphify-out/
+
+# Secrets
+.env
+cookies.txt
+
+# Playwright
+/playwright.config.ts
+/tests/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
