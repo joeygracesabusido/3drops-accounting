@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
@@ -63,24 +64,30 @@ interface Account {
   type: string;
 }
 
+interface SubsidiaryLedger {
+  id: string;
+  entityCode: string;
+  entityName: string;
+  accountId: string;
+  entityType: string;
+}
+
+const EMPTY_EXPENSES: Expense[] = [];
+const EMPTY_ACCOUNTS: Account[] = [];
+const EMPTY_VENDORS: { id: string; entityName: string }[] = [];
+const EMPTY_LEDGERS: SubsidiaryLedger[] = [];
+
 export default function ExpensesPage() {
   const { selectedBranch, branches } = useBranch();
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [cashAccounts, setCashAccounts] = useState<Account[]>([]);
-  const [apAccounts, setApAccounts] = useState<Account[]>([]);
-  const [vendors, setVendors] = useState<{ id: string; entityName: string }[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   // Details Modal State
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-
-  // Subsidiary Ledgers (for AP)
-  const [subsidiaryLedgers, setSubsidiaryLedgers] = useState<{ id: string; entityCode: string; entityName: string; accountId: string; entityType: string }[]>([]);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -111,77 +118,84 @@ export default function ExpensesPage() {
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const fetchInitialData = useCallback(async () => {
-    try {
+  // Reference data for the form - these change rarely, so they are fetched once and reused
+  const { data: formRefs } = useQuery({
+    queryKey: ['accounting', 'expense-form-refs'],
+    queryFn: async () => {
       const [accRes, vendorsRes, subsRes] = await Promise.all([
         fetch('/api/accounting/accounts').then(res => res.json()),
         fetch('/api/accounting/vendors').then(res => res.json()),
         fetch('/api/accounting/subsidiary-ledgers').then(res => res.json()),
       ]);
 
-      const allAccounts = accRes;
-      setVendors(Array.isArray(vendorsRes) ? vendorsRes : []);
-      setAccounts(allAccounts.filter((a: Account) => a.type === 'EXPENSE'));
-      setSubsidiaryLedgers(Array.isArray(subsRes) ? subsRes : []);
+      const allAccounts: Account[] = Array.isArray(accRes) ? accRes : [];
+      return {
+        accounts: allAccounts.filter(a => a.type === 'EXPENSE'),
+        // Typically Cash/Bank accounts are ASSET type
+        cashAccounts: allAccounts.filter(a => a.type === 'ASSET' && (a.name.toLowerCase().includes('cash') || a.name.toLowerCase().includes('bank'))),
+        // AP accounts - Liability accounts (code starting with 21)
+        apAccounts: allAccounts.filter(a => a.type === 'LIABILITY' && (a.code?.startsWith('21') || a.name.toLowerCase().includes('payable'))),
+        vendors: (Array.isArray(vendorsRes) ? vendorsRes : []) as { id: string; entityName: string }[],
+        subsidiaryLedgers: (Array.isArray(subsRes) ? subsRes : []) as SubsidiaryLedger[],
+      };
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+  const accounts = formRefs?.accounts ?? EMPTY_ACCOUNTS;
+  const cashAccounts = formRefs?.cashAccounts ?? EMPTY_ACCOUNTS;
+  const apAccounts = formRefs?.apAccounts ?? EMPTY_ACCOUNTS;
+  const vendors = formRefs?.vendors ?? EMPTY_VENDORS;
+  const subsidiaryLedgers = formRefs?.subsidiaryLedgers ?? EMPTY_LEDGERS;
 
-      // Typically Cash/Bank accounts are ASSET type
-      const cashAccs = allAccounts.filter((a: Account) => a.type === 'ASSET' && (a.name.toLowerCase().includes('cash') || a.name.toLowerCase().includes('bank')));
-      setCashAccounts(cashAccs);
+  // Filters are part of the key, so revisiting a filter/branch is served from cache
+  const expensesKey = ['accounting', 'expenses', debouncedSearch, statusFilter, selectedBranch?.id ?? ''] as const;
 
-      // AP accounts - Liability accounts with subsidiary ledger (code starting with 21)
-      const apAccs = allAccounts.filter((a: Account) => a.type === 'LIABILITY' && (a.code?.startsWith('21') || a.name.toLowerCase().includes('payable')));
-      setApAccounts(apAccs);
+  const fetchExpenses = useCallback(async (): Promise<Expense[]> => {
+    const params = new URLSearchParams();
+    if (debouncedSearch) params.append('search', debouncedSearch);
+    if (statusFilter !== 'ALL') params.append('status', statusFilter);
+    if (selectedBranch) params.append('branchId', selectedBranch.id);
 
-      if (cashAccs.length > 0) {
-        setFormData(prev => ({ ...prev, cashAccountId: cashAccs[0].id }));
-      }
-    } catch {
-      console.error('Error fetching initial data');
-    }
-  }, []);
+    const res = await fetch(`/api/accounting/expenses?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok || !Array.isArray(data)) throw new Error('Failed to load expenses');
+    return data as Expense[];
+  }, [debouncedSearch, statusFilter, selectedBranch]);
 
-  const fetchExpenses = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (statusFilter !== 'ALL') params.append('status', statusFilter);
-      if (selectedBranch) params.append('branchId', selectedBranch.id);
-
-      const res = await fetch(`/api/accounting/expenses?${params.toString()}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setExpenses(data);
-      } else {
-        setExpenses([]);
-        toast.error('Failed to load expenses');
-      }
-    } catch {
-      setExpenses([]);
-      toast.error('Failed to load expenses');
-    } finally {
-      setLoading(false);
-    }
-  }, [search, statusFilter, selectedBranch]);
+  const expensesQuery = useQuery({
+    queryKey: expensesKey,
+    queryFn: fetchExpenses,
+    // Keep the current table on screen while the next filter loads (no loading flash)
+    placeholderData: keepPreviousData,
+  });
+  const expenses = expensesQuery.data ?? EMPTY_EXPENSES;
+  const loading = expensesQuery.isLoading;
 
   useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+    if (expensesQuery.isError) toast.error('Failed to load expenses');
+  }, [expensesQuery.isError]);
+
+  // Debounce typing so we do not hit the database on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    const defaultCashId = cashAccounts[0]?.id;
+    if (!defaultCashId) return;
+    setFormData(prev => (prev.cashAccountId ? prev : { ...prev, cashAccountId: defaultCashId }));
+  }, [cashAccounts]);
+
+  const refreshExpenses = () => {
+    queryClient.invalidateQueries({ queryKey: ['accounting', 'expenses'] });
+  };
 
   const handleExport = async (limit: number | 'all') => {
     setExporting(true);
     try {
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (statusFilter !== 'ALL') params.append('status', statusFilter);
-      if (selectedBranch) params.append('branchId', selectedBranch.id);
-
-      const res = await fetch(`/api/accounting/expenses?${params.toString()}`);
-      const data = await res.json();
-      if (!res.ok || !Array.isArray(data)) {
-        toast.error('Failed to export expenses');
-        return;
-      }
+      // Reuses the cached list when fresh, otherwise refetches for the current filters
+      const data = await queryClient.fetchQuery({ queryKey: expensesKey, queryFn: fetchExpenses });
 
       const capped = limit === 'all' ? data : data.slice(0, limit);
 
@@ -254,10 +268,6 @@ export default function ExpensesPage() {
       setExporting(false);
     }
   };
-
-  useEffect(() => {
-    fetchExpenses();
-  }, [fetchExpenses, selectedBranch]);
 
   useEffect(() => {
     if (isDialogOpen && selectedBranch) {
@@ -427,7 +437,7 @@ body: JSON.stringify({
         branchId: selectedBranch?.id || '',
         items: [{ description: '', amount: 0, accountId: '' }]
       });
-      fetchExpenses();
+      refreshExpenses();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'An error occurred while updating');
     }
@@ -482,7 +492,7 @@ body: JSON.stringify({
         branchId: selectedBranch?.id || '',
         items: [{ description: '', amount: 0, accountId: '' }]
       });
-      fetchExpenses();
+      refreshExpenses();
     } catch {
       toast.error('An error occurred while saving');
     }
@@ -499,7 +509,7 @@ body: JSON.stringify({
       if (!res.ok) throw new Error('Failed to update status');
 
       toast.success(`Expense marked as ${newStatus}`);
-      fetchExpenses();
+      refreshExpenses();
     } catch {
       toast.error('An error occurred while updating status');
     }
@@ -525,7 +535,7 @@ body: JSON.stringify({
 
       toast.success('Expense and linked journal entry deleted');
       setExpenseToDelete(null);
-      fetchExpenses();
+      refreshExpenses();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'An error occurred while deleting');
     } finally {

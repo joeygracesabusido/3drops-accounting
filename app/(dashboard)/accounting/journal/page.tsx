@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Plus, Trash2, Scale, FileText, Search, Edit, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
 
@@ -23,11 +24,10 @@ interface JournalLine {
   memo: string;
 }
 
+const EMPTY_LIST: any[] = [];
+
 export default function JournalPage() {
-  const [entries, setEntries] = useState<any[]>([]);
-  const [accounts, setAccounts] = useState<any[]>([]);
-  const [subsidiaryLedgers, setSubsidiaryLedgers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
@@ -36,8 +36,6 @@ export default function JournalPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
   const [exportLimit, setExportLimit] = useState(200);
   const [exporting, setExporting] = useState(false);
@@ -53,43 +51,64 @@ export default function JournalPage() {
   });
   const { selectedBranch } = useBranch();
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
+  // Accounts + subsidiary ledgers feed the form, so they are keyed by branch only
+  const { data: formRefs } = useQuery({
+    queryKey: ['accounting', 'journal-form-refs', selectedBranch?.id ?? ''],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (selectedBranch) params.set('branchId', selectedBranch.id);
+
+      const [accountsRes, subsidiaryRes] = await Promise.all([
+        fetch(`/api/accounting/accounts?${params}`),
+        fetch(`/api/accounting/subsidiary-ledgers?${params}`),
+      ]);
+      return {
+        accounts: await accountsRes.json() as any[],
+        subsidiaryLedgers: await subsidiaryRes.json() as any[],
+      };
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+  const accounts = formRefs?.accounts ?? EMPTY_LIST;
+  const subsidiaryLedgers = formRefs?.subsidiaryLedgers ?? EMPTY_LIST;
+
+  // Every page/search combination is cached, so paging back is instant
+  const entriesKey = ['accounting', 'journal-entries', selectedBranch?.id ?? '', debouncedSearch, page, pageSize] as const;
+
+  const entriesQuery = useQuery({
+    queryKey: entriesKey,
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (selectedBranch) params.set('branchId', selectedBranch.id);
       params.set('page', page.toString());
       params.set('pageSize', pageSize.toString());
       if (debouncedSearch) params.set('search', debouncedSearch);
 
-      const [entriesRes, accountsRes, subsidiaryRes] = await Promise.all([
-        fetch(`/api/accounting/journal?${params}`),
-        fetch(`/api/accounting/accounts?${params}`),
-        fetch(`/api/accounting/subsidiary-ledgers?${params}`),
-      ]);
-      const entriesJson = await entriesRes.json();
-      const accountsData = await accountsRes.json();
-      const subsidiaryData = await subsidiaryRes.json();
-      setEntries(entriesJson.entries || []);
-      setTotal(entriesJson.pagination?.total || 0);
-      setTotalPages(entriesJson.pagination?.totalPages || 1);
-      setAccounts(accountsData);
-      setSubsidiaryLedgers(subsidiaryData);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedBranch, page, pageSize, debouncedSearch]);
+      const res = await fetch(`/api/accounting/journal?${params}`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load journal entries');
+      return json as { entries: any[]; pagination?: { total?: number; totalPages?: number } };
+    },
+    // Keep the current page on screen while the next one loads
+    placeholderData: keepPreviousData,
+  });
+
+  const entries = entriesQuery.data?.entries ?? EMPTY_LIST;
+  const loading = entriesQuery.isLoading;
+  const total = entriesQuery.data?.pagination?.total || 0;
+  const totalPages = entriesQuery.data?.pagination?.totalPages || 1;
+
+  const refreshEntries = () => {
+    queryClient.invalidateQueries({ queryKey: ['accounting', 'journal-entries'] });
+  };
+
+  useEffect(() => {
+    if (entriesQuery.isError) console.error('Error fetching journal entries:', entriesQuery.error);
+  }, [entriesQuery.isError, entriesQuery.error]);
 
   useEffect(() => {
     setPage(1);
-    fetchData();
   }, [selectedBranch]);
-
-  useEffect(() => {
-    fetchData();
-  }, [page, debouncedSearch, fetchData]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -245,7 +264,7 @@ export default function JournalPage() {
             { accountId: '', accountName: '', subsidiaryLedgerId: '', debit: '', credit: '', memo: '' },
           ],
         });
-        fetchData();
+        refreshEntries();
       } else {
         const data = await res.json();
         alert(data.error || `Failed to ${editingId ? 'update' : 'post'} journal entry`);
