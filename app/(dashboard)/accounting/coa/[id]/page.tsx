@@ -20,6 +20,7 @@ interface Transaction {
   id: string;
   date: string;
   description: string;
+  reference?: string;
   debit: number;
   credit: number;
   balance: number;
@@ -59,6 +60,7 @@ export default function AccountTransactionsPage() {
     if (!transactions.length) return;
     const data = transactions.map(tx => ({
       Date: new Date(tx.date).toLocaleDateString('en-PH'),
+      Reference: tx.reference || '',
       Description: tx.description,
       Debit: tx.debit,
       Credit: tx.credit,
@@ -74,6 +76,7 @@ export default function AccountTransactionsPage() {
     if (!transactions.length) return;
     const data = transactions.map(tx => ({
       Date: new Date(tx.date).toLocaleDateString('en-PH'),
+      Reference: tx.reference || '',
       Description: tx.description,
       Debit: tx.debit,
       Credit: tx.credit,
@@ -147,6 +150,7 @@ export default function AccountTransactionsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
+                <TableHead>Reference</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead className="text-right">Debit</TableHead>
                 <TableHead className="text-right">Credit</TableHead>
@@ -164,6 +168,7 @@ export default function AccountTransactionsPage() {
                 transactions.map((tx: Transaction) => (
                   <TableRow key={tx.id}>
                     <TableCell>{new Date(tx.date).toLocaleDateString('en-PH')}</TableCell>
+                    <TableCell className="font-mono text-xs">{tx.reference || '-'}</TableCell>
                     <TableCell>{tx.description}</TableCell>
                     <TableCell className="text-right font-mono">
                       {tx.debit > 0 ? `₱${tx.debit.toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '-'}

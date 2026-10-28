@@ -38,6 +38,7 @@ export async function GET(
           select: {
             date: true,
             description: true,
+            reference: true,
           },
         },
       },
@@ -60,6 +61,7 @@ export async function GET(
         id: line.id,
         date: line.entry.date,
         description: line.entry.description,
+        reference: line.entry.reference,
         debit: line.debit,
         credit: line.credit,
         balance: runningBalance,

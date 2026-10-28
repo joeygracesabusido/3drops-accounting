@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useBranch } from '@/lib/branch-context';
 import { BranchSelector } from '@/components/branch-selector';
+import { formatDateManila } from '@/lib/utils';
 
 interface JournalLine {
   accountId: string;
@@ -138,7 +139,7 @@ export default function JournalPage() {
       for (const entry of data.entries || []) {
         for (const line of entry.lines || []) {
           rows.push({
-            Date: new Date(entry.date).toLocaleDateString(),
+            Date: formatDateManila(entry.date),
             Reference: entry.reference || '-',
             Description: entry.description,
             Branch: entry.branch?.name || '',
@@ -231,6 +232,28 @@ export default function JournalPage() {
     });
     setIsDialogOpen(true);
     };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this journal entry? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/accounting/journal?id=${id}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        refreshEntries();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to delete journal entry');
+      }
+    } catch (err) {
+      console.error('Error deleting entry:', err);
+      alert('Failed to delete journal entry');
+    }
+  };
 
     async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -465,7 +488,7 @@ export default function JournalPage() {
               <div className="grid grid-cols-3 gap-6 bg-muted/50 p-6 rounded-lg">
                 <div>
                   <p className="text-base text-muted-foreground mb-1">Date</p>
-                  <p className="text-lg font-bold">{new Date(viewEntry.date).toLocaleDateString()}</p>
+                  <p className="text-lg font-bold">{formatDateManila(viewEntry.date)}</p>
                 </div>
                 <div className="col-span-2">
                   <p className="text-base text-muted-foreground mb-1">Description</p>
@@ -584,7 +607,7 @@ export default function JournalPage() {
                   const total = (entry.lines || []).reduce((sum: number, l: any) => sum + (l.debit || 0), 0);
                   return (
                     <TableRow key={entry.id}>
-                      <TableCell>{new Date(entry.date).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDateManila(entry.date)}</TableCell>
                       <TableCell className="font-mono text-sm">{entry.reference || '-'}</TableCell>
                       <TableCell>{entry.description}</TableCell>
                       <TableCell className="text-right font-medium">₱{total.toLocaleString()}</TableCell>
@@ -608,6 +631,15 @@ export default function JournalPage() {
                             onClick={() => handleEdit(entry)}
                           >
                             <Edit className="w-4 h-4" /> Edit
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="flex items-center gap-2 text-red-600 hover:text-red-700"
+                            onClick={() => handleDelete(entry.id)}
+                            disabled={loading}
+                          >
+                            <Trash2 className="w-4 h-4" /> Delete
                           </Button>
                         </div>
                       </TableCell>
