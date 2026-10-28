@@ -3,11 +3,13 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
 async function calculateAccountBalance(accountId: string, normalBalance: string, branchId?: string | null) {
-  const where: { accountId: string; entry?: { branchId: string } } = {
+  const where: { accountId: string; entry?: { branchId?: string; status: string } } = {
     accountId,
   };
   if (branchId) {
-    where.entry = { branchId };
+    where.entry = { branchId, status: 'POSTED' };
+  } else {
+    where.entry = { status: 'POSTED' };
   }
 
   const lines = await prisma.journalLine.findMany({

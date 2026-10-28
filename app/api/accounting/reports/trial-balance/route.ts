@@ -25,7 +25,15 @@ export async function GET(request: Request) {
         where: {
           branchId: branchId || undefined,
           date: Object.keys(dateFilter).length > 0 ? dateFilter : undefined,
+          status: 'POSTED',
         },
+        select: { id: true },
+      });
+      entryIds = entries.map(e => e.id);
+    } else {
+      // When no filters, only get POSTED entries
+      const entries = await prisma.journalEntry.findMany({
+        where: { status: 'POSTED' },
         select: { id: true },
       });
       entryIds = entries.map(e => e.id);
@@ -44,29 +52,12 @@ export async function GET(request: Request) {
       const totalDebit = account.lines.reduce((sum, line) => sum + line.debit, 0);
       const totalCredit = account.lines.reduce((sum, line) => sum + line.credit, 0);
 
-      // The Trial Balance shows the net position of each account
-      // Assets/Expenses usually have Debit balances
-      // Liabilities/Equity/Revenue usually have Credit balances
-      let debitBalance = 0;
-      let creditBalance = 0;
-
-      const net = totalDebit - totalCredit;
-
-      if (account.type === 'ASSET' || account.type === 'EXPENSE') {
-        if (net >= 0) debitBalance = net;
-        else creditBalance = Math.abs(net);
-      } else {
-        const netCredit = totalCredit - totalDebit;
-        if (netCredit >= 0) creditBalance = netCredit;
-        else debitBalance = Math.abs(netCredit);
-      }
-
       return {
         code: account.code,
         name: account.name,
         type: account.type,
-        totalDebit: debitBalance,
-        totalCredit: creditBalance,
+        totalDebit: Math.round(totalDebit * 100) / 100,
+        totalCredit: Math.round(totalCredit * 100) / 100,
       };
     }).filter(acc => acc.totalDebit !== 0 || acc.totalCredit !== 0);
 

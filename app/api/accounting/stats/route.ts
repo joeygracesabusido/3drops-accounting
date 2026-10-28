@@ -15,7 +15,13 @@ export async function GET(request: Request) {
     let entryIds: string[] | undefined;
     if (branchId) {
       const entries = await prisma.journalEntry.findMany({
-        where: { branchId },
+        where: { branchId, status: 'POSTED' },
+        select: { id: true },
+      });
+      entryIds = entries.map(e => e.id);
+    } else {
+      const entries = await prisma.journalEntry.findMany({
+        where: { status: 'POSTED' },
         select: { id: true },
       });
       entryIds = entries.map(e => e.id);

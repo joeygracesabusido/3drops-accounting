@@ -283,7 +283,7 @@ export async function PATCH(request: Request) {
         if (expenseAccountId && cashAccountId) {
           const journalEntry = await tx.journalEntry.create({
             data: {
-              date: new Date(),
+              date: disbursement?.date || new Date(),
               reference: `LIQ-${Date.now()}`,
               description: `Petty Cash Liquidation - ${expenseDescription}`,
               status: 'POSTED',
@@ -315,7 +315,7 @@ export async function PATCH(request: Request) {
         await tx.expense.create({
           data: {
             expenseNumber,
-            date: liquidation.date || new Date(),
+            date: disbursement?.date || liquidation.date || new Date(),
             payee: disbursement?.payeeName || 'Petty Cash',
             description: expenseDescription,
             status: 'APPROVED',

@@ -42,7 +42,14 @@ export async function GET(request: Request) {
         where: {
           branchId: branchId || undefined,
           date: Object.keys(dateFilter).length > 0 ? dateFilter : undefined,
+          status: 'POSTED',
         },
+        select: { id: true },
+      });
+      entryIds = entries.map(e => e.id);
+    } else {
+      const entries = await prisma.journalEntry.findMany({
+        where: { status: 'POSTED' },
         select: { id: true },
       });
       entryIds = entries.map(e => e.id);

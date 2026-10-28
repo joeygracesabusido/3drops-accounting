@@ -49,6 +49,7 @@ interface Disbursement {
   date: string;
   description: string;
   payeeName: string;
+  reference?: string;
   expenseAccountId?: string;
   status: string;
   createdAt: string;
@@ -77,6 +78,7 @@ export default function PettyCashPage() {
   const [expenseAccounts, setExpenseAccounts] = useState<Account[]>([]);
   const [disbursements, setDisbursements] = useState<Disbursement[]>([]);
   const [liquidations, setLiquidations] = useState<Liquidation[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [isCreateDialogOpen, setCreateDialogOpen] = useState(false);
   const [isDisburseDialogOpen, setDisburseDialogOpen] = useState(false);
@@ -536,6 +538,20 @@ export default function PettyCashPage() {
   const pendingDisbursements = Array.isArray(disbursements) ? disbursements.filter(d => d.status === 'PENDING') : [];
   const pendingLiquidations = Array.isArray(liquidations) ? liquidations.filter(l => l.status === 'PENDING') : [];
 
+  const filteredDisbursements = Array.isArray(disbursements)
+    ? disbursements.filter(d => {
+        const searchLower = searchQuery.toLowerCase();
+        const reference = d.reference || '';
+
+        return (
+          (d.description || '').toLowerCase().includes(searchLower) ||
+          (d.payeeName || '').toLowerCase().includes(searchLower) ||
+          reference.toLowerCase().includes(searchLower) ||
+          (d.status || '').toLowerCase().includes(searchLower)
+        );
+      })
+    : [];
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -545,6 +561,30 @@ export default function PettyCashPage() {
         </div>
         <div className="flex items-center gap-4">
           <BranchSelector />
+          <div className="relative w-64">
+            <Input
+              placeholder="Search disbursements..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+            </div>
+          </div>
           <Dialog open={isCreateDialogOpen} onOpenChange={setCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button className="flex items-center gap-2">
@@ -753,6 +793,7 @@ export default function PettyCashPage() {
                   <TableHead>Date</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Payee</TableHead>
+                  <TableHead>Reference</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Approval Date</TableHead>
@@ -760,18 +801,19 @@ export default function PettyCashPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {disbursements.length === 0 ? (
+                {filteredDisbursements.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                      No disbursements yet.
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      {searchQuery ? 'No disbursements match your search.' : 'No disbursements yet.'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  disbursements.map(disb => (
+                  filteredDisbursements.map(disb => (
                     <TableRow key={disb.id}>
                       <TableCell>{new Date(disb.date || disb.createdAt).toLocaleDateString('en-PH')}</TableCell>
                       <TableCell>{disb.description || '-'}</TableCell>
                       <TableCell>{disb.payeeName || '-'}</TableCell>
+                      <TableCell>{disb.reference || '-'}</TableCell>
                       <TableCell className="text-right font-mono">
                         ₱{disb.amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
                       </TableCell>

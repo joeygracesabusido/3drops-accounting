@@ -132,6 +132,14 @@ export function formatDateDisplay(date: Date): string {
 }
 
 /**
+ * Format date in Manila timezone for display
+ */
+export function formatDateManila(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+}
+
+/**
  * Get relative time string (e.g., "2 hours ago")
  */
 export function getRelativeTime(date: Date): string {

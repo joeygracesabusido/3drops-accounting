@@ -62,6 +62,7 @@ export async function GET(request: Request) {
       where: {
         description: { contains: `Petty Cash Replenishment - ${fund.name}` },
         reference: { startsWith: 'REP-' },
+        status: 'POSTED',
       },
       include: { lines: true },
       orderBy: { date: 'asc' },
